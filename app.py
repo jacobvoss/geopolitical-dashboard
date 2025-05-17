@@ -219,18 +219,24 @@ elif analysis_type == "Benchmarking":
         )
         st.plotly_chart(fig, use_container_width=True)
     
+
     with tab2:
         st.write("""
         #### Strategic Positioning
         Compares your selected country against key benchmarks:
         """)
         
+        # First calculate the values to avoid complex inline expressions
+        current_gdp_pct = df[(df['Country'] == country) & (df['Year'] == latest_year)]['GDP_Pct'].values[0] * 100
+        current_spending = df[(df['Country'] == country) & (df['Year'] == latest_year)]['Spending (USD)'].values[0]
+        spending_5y_ago = df[(df['Country'] == country) & (df['Year'] == latest_year - 5)]['Spending (USD)'].values[0]
+        
         benchmarks = pd.DataFrame({
             'Metric': ['Spending/GDP', 'Spending/Capita', '5-Yr Growth'],
             'Your Country': [
-                f"{(df[(df['Country']==country) & (df['Year']==latest_year)]['GDP_Pct'].values[0] * 100:.1f}%",  # Fixed parenthesis
-                f"${df[(df['Country']==country) & (df['Year']==latest_year)]['Spending (USD)'].values[0] / 50e6:,.0f}",
-                f"{(df[(df['Country']==country) & (df['Year']==latest_year)]['Spending (USD)'].values[0] / df[(df['Country']==country) & (df['Year']==latest_year-5)]['Spending (USD)'].values[0] - 1) * 100:+.1f}%"
+                f"{current_gdp_pct:.1f}%",  # Simplified expression
+                f"${current_spending / 50e6:,.0f}",
+                f"{(current_spending / spending_5y_ago - 1) * 100:+.1f}%"
             ],
             'NATO Average': [
                 "2.0%",
