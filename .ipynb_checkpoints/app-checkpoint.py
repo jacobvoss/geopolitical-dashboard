@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit.components.v1 import html
+from plotly.subplots import make_subplots
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -17,105 +17,57 @@ def apply_styles():
     st.markdown(f"""
     <style>
     :root {{
-        --primary: #00d2d3;
+        --primary: #4a8cff;
         --secondary: #ff6b4a;
         --bg: #0f172a;
         --card: #1e293b;
         --text: #e2e8f0;
-        --positive: #00d2d3;
-        --negative: #ff6b4a;
     }}
 
     [data-testid="stAppViewContainer"] > .main {{
         background-color: var(--bg);
-        font-family: 'Inter', sans-serif;
     }}
 
     [data-testid="stSidebar"] {{
         background-color: var(--card) !important;
-        border-right: 1px solid rgba(0, 210, 211, 0.1);
+        border-right: 1px solid rgba(74, 140, 255, 0.1);
     }}
 
     .stSelectbox, .stSlider, .stRadio > div {{
         background-color: var(--card) !important;
         border: 1px solid #334155 !important;
-        border-radius: 8px !important;
     }}
 
     h1, h2, h3 {{
         color: var(--text);
-        font-weight: 600;
-        font-family: 'Inter', sans-serif;
+        font-weight: 500;
     }}
 
     [data-testid="stMetricValue"] {{
         font-size: 1.5rem;
         color: var(--primary) !important;
-        font-weight: 600;
     }}
-
+    
+    .event-annotation {{
+        background-color: rgba(255,107,74,0.2);
+        padding: 4px 8px;
+        border-radius: 4px;
+        border-left: 3px solid var(--secondary);
+        margin: 8px 0;
+    }}
+    
     .event-table {{
         width: 100%;
         border-collapse: collapse;
-        font-family: 'Inter', sans-serif;
     }}
-    
-    .event-table tr {{
-        transition: all 0.2s ease;
-    }}
-    
-    .event-table tr:hover {{
-        background-color: rgba(0, 210, 211, 0.05);
-    }}
-    
     .event-table td {{
-        padding: 10px 12px;
-        border-bottom: 1px solid #334155;
-        font-size: 0.9rem;
-    }}
-    
-    .event-table th {{
-        padding: 8px 12px;
-        text-align: left;
-        font-size: 0.8rem;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        padding: 6px;
         border-bottom: 1px solid #334155;
     }}
-    
-    .positive-change {{
-        color: var(--positive) !important;
-        font-weight: 500;
-    }}
-    
-    .negative-change {{
-        color: var(--negative) !important;
-        font-weight: 500;
-    }}
-    
-    .metric-card {{
-        background-color: var(--card);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 16px;
-        border-left: 4px solid var(--primary);
-    }}
-    
-    @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(5px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
-    
-    .fade-in {{
-        animation: fadeIn 0.3s ease-out forwards;
+    .event-table tr:last-child td {{
+        border-bottom: none;
     }}
     </style>
-    """, unsafe_allow_html=True)
-
-    # Add Inter font
-    st.markdown("""
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 apply_styles()
@@ -139,70 +91,48 @@ df = load_data()
 latest_year = df['Year'].max()
 available_countries = df['Country'].unique().tolist()
 
-# Historical events - just years and names (no hardcoded impacts)
+# Historical events data - now with display priority
 EVENTS = {
     "Global": {
-        2001: "9/11 Attacks",
-        2008: "Global Financial Crisis",
-        2014: "Crimea Annexation",
-        2020: "COVID-19 Pandemic",
-        2022: "Russia Invades Ukraine"
+        2001: {"name": "9/11 Attacks", "priority": 1},
+        2008: {"name": "Global Financial Crisis", "priority": 2},
+        2014: {"name": "Crimea Annexation", "priority": 1},
+        2020: {"name": "COVID-19 Pandemic", "priority": 2},
+        2022: {"name": "Russia Invades Ukraine", "priority": 1}
     },
     "United States": {
-        2003: "Iraq War",
-        2011: "Bin Laden Killed"
+        2003: {"name": "Iraq War", "priority": 1},
+        2011: {"name": "Bin Laden Killed", "priority": 3},
+        2017: {"name": "Trump Defense Boost", "priority": 2}
     },
     "Germany": {
-        2011: "Military Reform",
-        2016: "Defense Spending Increase"
+        2011: {"name": "Military Reform", "priority": 2},
+        2016: {"name": "Defense Spending Increase", "priority": 2}
     }
 }
 
-def calculate_event_impact(country, year, df):
-    """Calculate actual YoY change for events with proper bounds checking"""
-    country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
-    
-    # Find the row index for the event year
-    event_rows = country_data[country_data['Year'] == year]
-    if len(event_rows) == 0:
-        return None  # Event year not in data
-    
-    event_idx = event_rows.index[0]
-    if event_idx == 0:
-        return None  # No previous year to compare
-    
-    # Get the YoY change that was pre-calculated
-    yoy_change = country_data.at[event_idx, 'YoY_Change']
-    
-    # Handle NaN/inf cases
-    if pd.isna(yoy_change) or abs(yoy_change) == float('inf'):
-        return None
-    
-    return {
-        'year': year,
-        'name': EVENTS.get("Global", {}).get(year) or EVENTS.get(country, {}).get(year),
-        'change': yoy_change,
-        'prev_year': country_data.at[event_idx - 1, 'Year']
-    }
-
 # ===== UI =====
-st.title("Defense Spending Analytics")
-st.caption("NATO military expenditure trends with event impact analysis")
+st.title("NATO Defense Spending Analysis")
+st.caption("Comparative military expenditure trends 1949-2024 with event annotations")
 
 # Sidebar controls
 with st.sidebar:
     st.header("Filters")
     country = st.selectbox(
-        "Select Country",
+        "Primary Country",
         available_countries,
         index=available_countries.index('United States') if 'United States' in available_countries else 0
     )
     
     compare_countries = st.multiselect(
         "Compare With",
-        [c for c in available_countries if c != country],
+        available_countries,
         default=['Germany', 'France'] if set(['Germany', 'France']).issubset(available_countries) else []
     )
+    
+    show_events = st.checkbox("Show historical events", True)
+    priority_filter = st.slider("Event importance filter", 1, 3, 1, 
+                              help="Higher numbers show more events")
 
 # Main visualization
 col1, col2 = st.columns([3, 1])
@@ -216,7 +146,7 @@ with col1:
         x=primary_data['Year'],
         y=primary_data['Spending (USD)'],
         name=country,
-        line=dict(color='#00d2d3', width=3),
+        line=dict(color='#4a8cff', width=3),
         mode='lines',
         hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
     ))
@@ -228,141 +158,114 @@ with col1:
             x=comp_data['Year'],
             y=comp_data['Spending (USD)'],
             name=c,
-            line=dict(width=1.5, dash='dot', color='#94a3b8'),
-            opacity=0.8,
+            line=dict(width=1.5, dash='dot'),
+            opacity=0.7,
             hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
         ))
     
-    # Add event annotations with calculated impacts
-    all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
-    for year, event_name in sorted(all_events.items()):
-        impact = calculate_event_impact(country, year, df)
-        if impact and impact['change'] is not None:
-            fig.add_vline(
-                x=year,
-                line_width=1,
-                line_dash="dash",
-                line_color="#ff6b4a",
-                opacity=0.5,
-                annotation_text=f"{event_name}<br>{'+' if impact['change'] >= 0 else ''}{impact['change']:.1f}%",
-                annotation_position="top right",
-                annotation_font_size=10,
-                annotation_bgcolor="rgba(30,41,59,0.8)"
-            )
+    # Add event annotations if enabled
+    if show_events:
+        # Combine global and country-specific events
+        all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+        
+        # Filter by priority
+        filtered_events = {yr: ev for yr, ev in all_events.items() 
+                          if ev["priority"] <= priority_filter and yr in primary_data['Year'].values}
+        
+        # Calculate positions to avoid overlap
+        positions = ["top", "bottom"] * len(filtered_events)
+        
+        for i, (year, event) in enumerate(filtered_events.items()):
+            # Get spending change for this event year
+            event_data = primary_data[primary_data['Year'] == year]
+            prev_year_data = primary_data[primary_data['Year'] == year - 1]
+            
+            if not prev_year_data.empty:
+                yoy_change = event_data['YoY_Change'].values[0]
+                change_text = f"{'+' if yoy_change >= 0 else ''}{yoy_change:.1f}%"
+                
+                fig.add_vline(
+                    x=year,
+                    line_width=1,
+                    line_dash="dash",
+                    line_color="#ff6b4a",
+                    opacity=0.5,
+                    annotation_text=f"{event['name']}<br>{change_text}",
+                    annotation_position=positions[i % 2],
+                    annotation_font_size=10,
+                    annotation_bgcolor="rgba(30,41,59,0.8)"
+                )
     
     fig.update_layout(
-        title=f"{country} Defense Spending",
+        title=f"{country} Defense Spending Over Time",
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0', family="Inter"),
+        font=dict(color='#e2e8f0'),
         hovermode="x unified",
         height=500,
-        margin=dict(t=80),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        )
+        margin=dict(t=80)  # Extra space for annotations
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Current spending metric
-    current_data = df[(df['Country'] == country) & (df['Year'] == latest_year)]
-    if not current_data.empty:
-        current_spending = current_data['Spending (USD)'].values[0]
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1e9:,.1f}B</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Get latest non-zero spending value (fixes 2024 issue)
+    country_data = df[df['Country'] == country]
+    latest_non_zero = country_data[country_data['Spending (USD)'] > 0].sort_values('Year').iloc[-1]
     
-    # 5-year change metric
-    if len(df[df['Country'] == country]) >= 5:
-        five_years_ago = latest_year - 5
-        spending_5y_ago = df[(df['Country'] == country) & (df['Year'] == five_years_ago)]['Spending (USD)'].values[0]
-        pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
-        change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
+    st.metric(
+        f"Latest Data ({latest_non_zero['Year']})", 
+        f"${latest_non_zero['Spending (USD)']/1e9:,.1f}B"
+    )
+    
+    # Calculate 10-year change if data exists
+    if len(country_data) >= 10:
+        current_year = latest_non_zero['Year']
+        current_spending = latest_non_zero['Spending (USD)']
+        ten_years_ago = max(current_year - 10, country_data['Year'].min())
         
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        try:
+            spending_10y_ago = country_data[country_data['Year'] == ten_years_ago]['Spending (USD)'].values[0]
+            pct_change = (current_spending - spending_10y_ago) / spending_10y_ago * 100
+            st.metric(
+                "10-Year Change",
+                f"{pct_change:+.1f}%",
+                delta_color="inverse"
+            )
+        except:
+            pass
     
-    # Event timeline with calculated impacts
-    st.markdown("""
-    <div class="fade-in">
-        <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
-        <table class="event-table">
-            <thead>
+    # Event explanations table
+    if show_events:
+        st.markdown("### Key Events & Impact")
+        
+        # Combine and filter events
+        all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+        filtered_events = {yr: ev for yr, ev in all_events.items() 
+                         if ev["priority"] <= priority_filter and yr in primary_data['Year'].values}
+        
+        # Create event table
+        event_table = "<table class='event-table'><tr><th>Year</th><th>Event</th><th>YoY Δ</th></tr>"
+        
+        for year, event in sorted(filtered_events.items()):
+            event_data = primary_data[primary_data['Year'] == year]
+            prev_year_data = primary_data[primary_data['Year'] == year - 1]
+            
+            if not prev_year_data.empty:
+                yoy_change = event_data['YoY_Change'].values[0]
+                change_text = f"{'+' if yoy_change >= 0 else ''}{yoy_change:.1f}%"
+                change_color = "#10b981" if yoy_change > 0 else "#ff6b4a"
+                
+                event_table += f"""
                 <tr>
-                    <th>Year</th>
-                    <th>Event</th>
-                    <th>Impact</th>
+                    <td>{year}</td>
+                    <td>{event['name']}</td>
+                    <td style='color: {change_color}'>{change_text}</td>
                 </tr>
-            </thead>
-            <tbody>
-    """, unsafe_allow_html=True)
-    
-    # Get and display events with calculated impacts
-    all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
-# In the event timeline section:
-    event_impacts = []
-    
-    for year, event_name in sorted(all_events.items(), reverse=True):
-        impact = calculate_event_impact(country, year, df)
-        if impact:  # Only add if we got valid impact data
-            event_impacts.append(impact)
-    
-    # Sort by absolute impact for most significant events first
-    event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
-    
-    for impact in event_impacts:
-        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
-        change_text = f"+{impact['change']:.1f}%" if impact['change'] >= 0 else f"{impact['change']:.1f}%"
+                """
         
-        st.markdown(f"""
-        <tr class="fade-in">
-            <td>{impact['year']}</td>
-            <td>{impact['name']}</td>
-            <td class="{change_class}">{change_text}</td>
-        </tr>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("""
-            </tbody>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
+        event_table += "</table>"
+        st.markdown(event_table, unsafe_allow_html=True)
 
 # Footer
 st.divider()
-st.caption("""
-Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports
-""")
-
-# Add animations
-html("""
-<script>
-// Simple fade-in animation for elements
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            entry.target.classList.add('fade-in');
-        }
-    });
-}, {threshold: 0.1});
-
-document.querySelectorAll('.fade-in').forEach(el => {
-    el.style.opacity = 0;
-    observer.observe(el);
-});
-</script>
-""")
+st.caption("Data Sources: SIPRI Military Expenditure Database • 2024")
