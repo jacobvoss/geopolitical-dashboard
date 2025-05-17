@@ -46,6 +46,14 @@ def apply_styles():
         font-size: 1.5rem;
         color: var(--primary) !important;
     }}
+    
+    .event-annotation {{
+        background-color: rgba(255,107,74,0.2);
+        padding: 4px 8px;
+        border-radius: 4px;
+        border-left: 3px solid var(--secondary);
+        margin: 8px 0;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -65,9 +73,29 @@ df = load_data()
 latest_year = df['Year'].max()
 available_countries = df['Country'].unique().tolist()
 
+# Historical events data
+EVENTS = {
+    "Global": {
+        2001: "9/11 Attacks",
+        2008: "Global Financial Crisis",
+        2014: "Crimea Annexation",
+        2020: "COVID-19 Pandemic",
+        2022: "Russia Invades Ukraine"
+    },
+    "United States": {
+        2003: "Iraq War",
+        2011: "Bin Laden Killed",
+        2017: "Trump Defense Boost"
+    },
+    "Germany": {
+        2011: "Military Reform",
+        2016: "Defense Spending Increase"
+    }
+}
+
 # ===== UI =====
 st.title("NATO Defense Spending Analysis")
-st.caption("Comparative military expenditure trends 1949-2024")
+st.caption("Comparative military expenditure trends 1949-2024 with event annotations")
 
 # Sidebar controls
 with st.sidebar:
@@ -83,6 +111,8 @@ with st.sidebar:
         available_countries,
         default=['Germany', 'France'] if set(['Germany', 'France']).issubset(available_countries) else []
     )
+    
+    show_events = st.checkbox("Show historical events", True)
 
 # Main visualization
 col1, col2 = st.columns([3, 1])
@@ -111,6 +141,34 @@ with col1:
             opacity=0.7
         ))
     
+    # Add event annotations if enabled
+    if show_events:
+        # Global events
+        for year, event in EVENTS.get("Global", {}).items():
+            if year in primary_data['Year'].values:
+                fig.add_vline(
+                    x=year,
+                    line_width=1,
+                    line_dash="dash",
+                    line_color="#ff6b4a",
+                    opacity=0.5,
+                    annotation_text=event,
+                    annotation_position="top left"
+                )
+        
+        # Country-specific events
+        for year, event in EVENTS.get(country, {}).items():
+            if year in primary_data['Year'].values:
+                fig.add_vline(
+                    x=year,
+                    line_width=1,
+                    line_dash="dash",
+                    line_color="#10b981",
+                    opacity=0.5,
+                    annotation_text=event,
+                    annotation_position="bottom right"
+                )
+    
     fig.update_layout(
         title=f"{country} Defense Spending Over Time",
         plot_bgcolor='rgba(0,0,0,0)',
@@ -122,21 +180,47 @@ with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    current_spending = df[(df['Country'] == country) & (df['Year'] == latest_year)]['Spending (USD)'].values[0]
+    # Get latest non-zero spending value
+    country_data = df[df['Country'] == country]
+    latest_non_zero = country_data[country_data['Spending (USD)'] > 0].iloc[-1]
+    
     st.metric(
-        f"{latest_year} Spending", 
-        f"${current_spending/1e9:,.1f}B"
+        f"Latest Data ({latest_non_zero['Year']})", 
+        f"${latest_non_zero['Spending (USD)']/1e9:,.1f}B"
     )
     
     # Calculate 10-year change if data exists
-    if latest_year - 10 in df['Year'].unique():
-        spending_10y_ago = df[(df['Country'] == country) & (df['Year'] == latest_year - 10)]['Spending (USD)'].values[0]
-        pct_change = (current_spending - spending_10y_ago) / spending_10y_ago * 100
-        st.metric(
-            "10-Year Change",
-            f"{pct_change:+.1f}%",
-            delta_color="inverse"
-        )
+    if len(country_data) >= 10:
+        current_year = latest_non_zero['Year']
+        current_spending = latest_non_zero['Spending (USD)']
+        ten_years_ago = max(current_year - 10, country_data['Year'].min())
+        
+        try:
+            spending_10y_ago = country_data[country_data['Year'] == ten_years_ago]['Spending (USD)'].values[0]
+            pct_change = (current_spending - spending_10y_ago) / spending_10y_ago * 100
+            st.metric(
+                "10-Year Change",
+                f"{pct_change:+.1f}%",
+                delta_color="inverse"
+            )
+        except:
+            pass
+    
+    # Event explanations
+    if show_events:
+        st.markdown("### Key Events")
+        country_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+        
+        for year, event in sorted(country_events.items()):
+            if year in country_data['Year'].values:
+                spending = country_data[country_data['Year'] == year]['Spending (USD)'].values[0]
+                st.markdown(
+                    f"""<div class="event-annotation">
+                    <strong>{year}: {event}</strong><br>
+                    Spending: ${spending/1e9:,.1f}B
+                    </div>""",
+                    unsafe_allow_html=True
+                )
 
 # Footer
 st.divider()
