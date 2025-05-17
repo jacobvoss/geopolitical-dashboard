@@ -159,25 +159,30 @@ EVENTS = {
 }
 
 def calculate_event_impact(country, year, df):
-    """Calculate actual YoY change for events"""
-    country_data = df[df['Country'] == country].sort_values('Year')
-    event_year_idx = country_data[country_data['Year'] == year].index
+    """Calculate actual YoY change for events with proper bounds checking"""
+    country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
     
-    if len(event_year_idx) == 0:
-        return None
+    # Find the row index for the event year
+    event_rows = country_data[country_data['Year'] == year]
+    if len(event_rows) == 0:
+        return None  # Event year not in data
     
-    event_year_idx = event_year_idx[0]
-    if event_year_idx == 0:
+    event_idx = event_rows.index[0]
+    if event_idx == 0:
         return None  # No previous year to compare
     
-    prev_year = country_data.iloc[event_year_idx - 1]['Year']
-    event_change = country_data.iloc[event_year_idx]['YoY_Change']
+    # Get the YoY change that was pre-calculated
+    yoy_change = country_data.at[event_idx, 'YoY_Change']
+    
+    # Handle NaN/inf cases
+    if pd.isna(yoy_change) or abs(yoy_change) == float('inf'):
+        return None
     
     return {
         'year': year,
         'name': EVENTS.get("Global", {}).get(year) or EVENTS.get(country, {}).get(year),
-        'change': event_change,
-        'prev_year': prev_year
+        'change': yoy_change,
+        'prev_year': country_data.at[event_idx - 1, 'Year']
     }
 
 # ===== UI =====
@@ -308,11 +313,12 @@ with col2:
     
     # Get and display events with calculated impacts
     all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+# In the event timeline section:
     event_impacts = []
     
     for year, event_name in sorted(all_events.items(), reverse=True):
         impact = calculate_event_impact(country, year, df)
-        if impact and impact['change'] is not None:
+        if impact:  # Only add if we got valid impact data
             event_impacts.append(impact)
     
     # Sort by absolute impact for most significant events first
