@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
-from datetime import datetime
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -13,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ===== STYLES & ANIMATIONS =====
+# ===== STYLES =====
 def apply_styles():
     st.markdown(f"""
     <style>
@@ -103,14 +102,6 @@ def apply_styles():
         border-left: 4px solid var(--primary);
     }}
     
-    .projection-card {{
-        background-color: var(--card);
-        border-radius: 12px;
-        padding: 16px;
-        margin-top: 24px;
-        border: 1px solid rgba(0, 210, 211, 0.2);
-    }}
-    
     @keyframes fadeIn {{
         from {{ opacity: 0; transform: translateY(5px); }}
         to {{ opacity: 1; transform: translateY(0); }}
@@ -142,39 +133,56 @@ def load_data():
     df_melted = df_melted.sort_values(['Country', 'Year'])
     df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
     
-    # Generate 5-year projections (simplified example)
-    current_year = datetime.now().year
-    for y in range(current_year, current_year + 5):
-        projection = df_melted[df_melted['Year'] == current_year - 1].copy()
-        projection['Year'] = y
-        projection['Spending (USD)'] = projection['Spending (USD)'] * 1.03  # 3% growth projection
-        projection['YoY_Change'] = 3.0
-        projection['is_projection'] = True
-        df_melted = pd.concat([df_melted, projection])
-    
     return df_melted.dropna()
 
 df = load_data()
-latest_year = df[~df['is_projection']]['Year'].max() if 'is_projection' in df.columns else df['Year'].max()
+latest_year = df['Year'].max()
 available_countries = df['Country'].unique().tolist()
 
-# Historical events data with impact
+# Historical events - just years and names (no hardcoded impacts)
 EVENTS = {
     "Global": {
-        2008: {"name": "Global Financial Crisis", "impact": -6.2},
-        2014: {"name": "Crimea Annexation", "impact": 7.3},
-        2020: {"name": "COVID-19 Pandemic", "impact": 4.7},
-        2022: {"name": "Russia Invades Ukraine", "impact": 12.1}
+        2001: "9/11 Attacks",
+        2008: "Global Financial Crisis",
+        2014: "Crimea Annexation",
+        2020: "COVID-19 Pandemic",
+        2022: "Russia Invades Ukraine"
     },
     "United States": {
-        2001: {"name": "9/11 Attacks", "impact": 15.3},
-        2003: {"name": "Iraq War", "impact": 18.2}
+        2003: "Iraq War",
+        2011: "Bin Laden Killed"
+    },
+    "Germany": {
+        2011: "Military Reform",
+        2016: "Defense Spending Increase"
     }
 }
 
+def calculate_event_impact(country, year, df):
+    """Calculate actual YoY change for events"""
+    country_data = df[df['Country'] == country].sort_values('Year')
+    event_year_idx = country_data[country_data['Year'] == year].index
+    
+    if len(event_year_idx) == 0:
+        return None
+    
+    event_year_idx = event_year_idx[0]
+    if event_year_idx == 0:
+        return None  # No previous year to compare
+    
+    prev_year = country_data.iloc[event_year_idx - 1]['Year']
+    event_change = country_data.iloc[event_year_idx]['YoY_Change']
+    
+    return {
+        'year': year,
+        'name': EVENTS.get("Global", {}).get(year) or EVENTS.get(country, {}).get(year),
+        'change': event_change,
+        'prev_year': prev_year
+    }
+
 # ===== UI =====
 st.title("Defense Spending Analytics")
-st.caption("NATO military expenditure trends and projections")
+st.caption("NATO military expenditure trends with event impact analysis")
 
 # Sidebar controls
 with st.sidebar:
@@ -190,9 +198,6 @@ with st.sidebar:
         [c for c in available_countries if c != country],
         default=['Germany', 'France'] if set(['Germany', 'France']).issubset(available_countries) else []
     )
-    
-    st.markdown("---")
-    st.markdown("### Key Metrics", class_="fade-in")
 
 # Main visualization
 col1, col2 = st.columns([3, 1])
@@ -200,8 +205,8 @@ col1, col2 = st.columns([3, 1])
 with col1:
     fig = go.Figure()
     
-    # Primary country - actual data
-    primary_data = df[(df['Country'] == country) & (~df.get('is_projection', False))]
+    # Primary country
+    primary_data = df[df['Country'] == country]
     fig.add_trace(go.Scatter(
         x=primary_data['Year'],
         y=primary_data['Spending (USD)'],
@@ -211,21 +216,9 @@ with col1:
         hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
     ))
     
-    # Primary country - projections
-    if 'is_projection' in df.columns:
-        projection_data = df[(df['Country'] == country) & (df['is_projection'])]
-        fig.add_trace(go.Scatter(
-            x=projection_data['Year'],
-            y=projection_data['Spending (USD)'],
-            name=f"{country} (Projection)",
-            line=dict(color='#00d2d3', width=3, dash='dot'),
-            mode='lines',
-            hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M (Projected)<extra></extra>"
-        ))
-    
     # Comparison countries
     for c in compare_countries:
-        comp_data = df[(df['Country'] == c) & (~df.get('is_projection', False))]
+        comp_data = df[df['Country'] == c]
         fig.add_trace(go.Scatter(
             x=comp_data['Year'],
             y=comp_data['Spending (USD)'],
@@ -235,17 +228,18 @@ with col1:
             hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
         ))
     
-    # Add event annotations
+    # Add event annotations with calculated impacts
     all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
-    for year, event in sorted(all_events.items()):
-        if year in primary_data['Year'].values:
+    for year, event_name in sorted(all_events.items()):
+        impact = calculate_event_impact(country, year, df)
+        if impact and impact['change'] is not None:
             fig.add_vline(
                 x=year,
                 line_width=1,
                 line_dash="dash",
                 line_color="#ff6b4a",
                 opacity=0.5,
-                annotation_text=f"{event['name']}<br>{'+' if event['impact'] >= 0 else ''}{event['impact']}%",
+                annotation_text=f"{event_name}<br>{'+' if impact['change'] >= 0 else ''}{impact['change']:.1f}%",
                 annotation_position="top right",
                 annotation_font_size=10,
                 annotation_bgcolor="rgba(30,41,59,0.8)"
@@ -271,7 +265,7 @@ with col1:
 
 with col2:
     # Current spending metric
-    current_data = df[(df['Country'] == country) & (~df.get('is_projection', False)) & (df['Year'] == latest_year)]
+    current_data = df[(df['Country'] == country) & (df['Year'] == latest_year)]
     if not current_data.empty:
         current_spending = current_data['Spending (USD)'].values[0]
         st.markdown(f"""
@@ -297,7 +291,7 @@ with col2:
         </div>
         """, unsafe_allow_html=True)
     
-    # Event timeline
+    # Event timeline with calculated impacts
     st.markdown("""
     <div class="fade-in">
         <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
@@ -312,66 +306,40 @@ with col2:
             <tbody>
     """, unsafe_allow_html=True)
     
-    # Display events in table
+    # Get and display events with calculated impacts
     all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
-    for year, event in sorted(all_events.items(), reverse=True):
-        if year in df[df['Country'] == country]['Year'].values:
-            change_class = "positive-change" if event['impact'] >= 0 else "negative-change"
-            change_text = f"+{event['impact']}%" if event['impact'] >= 0 else f"{event['impact']}%"
-            
-            st.markdown(f"""
-            <tr class="fade-in">
-                <td>{year}</td>
-                <td>{event['name']}</td>
-                <td class="{change_class}">{change_text}</td>
-            </tr>
-            """, unsafe_allow_html=True)
+    event_impacts = []
+    
+    for year, event_name in sorted(all_events.items(), reverse=True):
+        impact = calculate_event_impact(country, year, df)
+        if impact and impact['change'] is not None:
+            event_impacts.append(impact)
+    
+    # Sort by absolute impact for most significant events first
+    event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    for impact in event_impacts:
+        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
+        change_text = f"+{impact['change']:.1f}%" if impact['change'] >= 0 else f"{impact['change']:.1f}%"
+        
+        st.markdown(f"""
+        <tr class="fade-in">
+            <td>{impact['year']}</td>
+            <td>{impact['name']}</td>
+            <td class="{change_class}">{change_text}</td>
+        </tr>
+        """, unsafe_allow_html=True)
     
     st.markdown("""
             </tbody>
         </table>
     </div>
     """, unsafe_allow_html=True)
-    
-    # 5-year projections
-    if 'is_projection' in df.columns:
-        st.markdown("""
-        <div class="projection-card fade-in">
-            <h3 style="margin-top: 0; margin-bottom: 12px;">5-Year Projection</h3>
-            <div style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 8px;">Annual growth: +3.0%</div>
-            <table class="event-table">
-                <thead>
-                    <tr>
-                        <th>Year</th>
-                        <th>Projected</th>
-                        <th>YoY Δ</th>
-                    </tr>
-                </thead>
-                <tbody>
-        """, unsafe_allow_html=True)
-        
-        projection_years = sorted(df[df['is_projection']]['Year'].unique())
-        for year in projection_years[:5]:  # Show next 5 years
-            proj_data = df[(df['Country'] == country) & (df['Year'] == year)]
-            if not proj_data.empty:
-                st.markdown(f"""
-                <tr class="fade-in">
-                    <td>{year}</td>
-                    <td>${proj_data['Spending (USD)'].values[0]/1e9:,.1f}B</td>
-                    <td class="positive-change">+3.0%</td>
-                </tr>
-                """, unsafe_allow_html=True)
-        
-        st.markdown("""
-                </tbody>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
 
 # Footer
 st.divider()
 st.caption("""
-Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports • Projections based on 3% annual growth model
+Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports
 """)
 
 # Add animations
