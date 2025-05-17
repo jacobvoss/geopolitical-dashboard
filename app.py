@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 st.title("Geopolitical Risk Dashboard")
+st.set_page_config(layout="wide", page_icon=":military_helmet:")
 
 # Load the data
 df = pd.read_csv('cleaned_data/cleaned_nato_spending.csv')
@@ -30,3 +31,7 @@ fig = px.line(filtered,
               y='Military spending ($USD)',
               title=f'{country} Defense Spending Over Time')
 st.plotly_chart(fig)
+
+# Interactive World Maps
+fig = px.choropleth(df_latest, locations="Country", locationmode='country names',
+                   color="Military spending", hover_name="Country")
