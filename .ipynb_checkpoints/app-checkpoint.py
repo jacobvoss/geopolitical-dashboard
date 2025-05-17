@@ -154,14 +154,6 @@ EVENTS = {
         2014: "Crimea Annexation",
         2020: "COVID-19 Pandemic",
         2022: "Russia Invades Ukraine"
-    },
-    "United States": {
-        2003: "Iraq War",
-        2011: "Bin Laden Killed"
-    },
-    "Germany": {
-        2011: "Military Reform",
-        2016: "Defense Spending Increase"
     }
 }
 
@@ -184,14 +176,14 @@ def calculate_event_impact(country, year, df):
     
     return {
         'year': year,
-        'name': EVENTS.get("Global", {}).get(year) or EVENTS.get(country, {}).get(year),
+        'name': EVENTS.get("Global", {}).get(year),
         'change': yoy_change,
         'prev_year': country_data.at[event_idx - 1, 'Year']
     }
 
 # ===== UI =====
 st.title("Defense Spending Analytics")
-st.caption("NATO military expenditure trends from 1949-2024 with event impact analysis")
+st.caption("NATO military expenditure trends with event impact analysis")
 
 # Sidebar controls
 with st.sidebar:
@@ -205,7 +197,7 @@ with st.sidebar:
     compare_countries = st.multiselect(
         "Compare With",
         [c for c in available_countries if c != country],
-        default=['Germany', 'France'] if set(['Germany', 'France']).issubset(available_countries) else []
+        default=None  # Removed default comparisons
     )
 
 # Main visualization
@@ -214,7 +206,7 @@ col1, col2 = st.columns([3, 1])
 with col1:
     fig = go.Figure()
     
-    # Primary country
+    # Primary country - solid line
     primary_data = df[df['Country'] == country]
     fig.add_trace(go.Scatter(
         x=primary_data['Year'],
@@ -225,21 +217,28 @@ with col1:
         hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
     ))
     
-    # Comparison countries (only if selected)
+    # Comparison countries - different line styles and colors
     if compare_countries:
-        for c in compare_countries:
+        line_styles = ['solid', 'dash', 'dot', 'dashdot']
+        colors = ['#ff6b4a', '#f0a202', '#a1cdf4', '#d883ff']
+        
+        for i, c in enumerate(compare_countries):
             comp_data = df[df['Country'] == c]
             fig.add_trace(go.Scatter(
                 x=comp_data['Year'],
                 y=comp_data['Spending (USD)'],
                 name=c,
-                line=dict(width=1.5, dash='dot', color='#94a3b8'),
-                opacity=0.8,
+                line=dict(
+                    width=2.5,
+                    dash=line_styles[i % len(line_styles)],
+                    color=colors[i % len(colors)]
+                ),
+                opacity=0.9,
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
     
     # Add event annotations with calculated impacts
-    all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+    all_events = EVENTS.get("Global", {})
     for year, event_name in sorted(all_events.items()):
         impact = calculate_event_impact(country, year, df)
         if impact and impact['change'] is not None:
@@ -274,10 +273,14 @@ with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Current spending metric
-    current_data = df[(df['Country'] == country) & (df['Year'] == latest_year)]
-    if not current_data.empty:
-        current_spending = current_data['Spending (USD)'].values[0]
+    # Current spending metric - fixed to show latest available data
+    country_data = df[df['Country'] == country]
+    if not country_data.empty:
+        # Get the latest non-zero spending value
+        latest_data = country_data[country_data['Spending (USD)'] > 0].sort_values('Year').iloc[-1]
+        latest_year = latest_data['Year']
+        current_spending = latest_data['Spending (USD)']
+        
         st.markdown(f"""
         <div class="metric-card fade-in">
             <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
@@ -285,21 +288,24 @@ with col2:
             <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # 5-year change metric
-    if len(df[df['Country'] == country]) >= 5:
-        five_years_ago = latest_year - 5
-        spending_5y_ago = df[(df['Country'] == country) & (df['Year'] == five_years_ago)]['Spending (USD)'].values[0]
-        pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
-        change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
         
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # 5-year change metric
+        if len(country_data) >= 5:
+            five_years_ago = max(latest_year - 5, country_data['Year'].min())
+            try:
+                spending_5y_ago = country_data[country_data['Year'] == five_years_ago]['Spending (USD)'].values[0]
+                pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
+                change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
+                
+                st.markdown(f"""
+                <div class="metric-card fade-in">
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
+                    <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            except:
+                pass
     
     # Event timeline with calculated impacts
     st.markdown("""
@@ -317,7 +323,7 @@ with col2:
     """, unsafe_allow_html=True)
     
     # Get and display events with calculated impacts
-    all_events = {**EVENTS.get("Global", {}), **EVENTS.get(country, {})}
+    all_events = EVENTS.get("Global", {})
     event_impacts = []
     
     for year, event_name in all_events.items():
@@ -356,7 +362,7 @@ with col2:
 # Footer
 st.divider()
 st.caption("""
-Data Sources: SIPRI Military Expenditure Database • 2024
+Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports
 """)
 
 # Add animations
