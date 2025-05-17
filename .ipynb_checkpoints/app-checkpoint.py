@@ -228,9 +228,9 @@ elif analysis_type == "Benchmarking":
         benchmarks = pd.DataFrame({
             'Metric': ['Spending/GDP', 'Spending/Capita', '5-Yr Growth'],
             'Your Country': [
-                f"{(df[(df['Country']==country)&(df['Year']==latest_year)]['GDP_Pct'].values[0]*100:.1f}%",
-                f"${df[(df['Country']==country)&(df['Year']==latest_year)]['Spending (USD)'].values[0]/50e6:,.0f}",
-                f"{(df[(df['Country']==country)&(df['Year']==latest_year)]['Spending (USD)'].values[0]/df[(df['Country']==country)&(df['Year']==latest_year-5)]['Spending (USD)'].values[0]-1)*100:+.1f}%"
+                f"{(df[(df['Country']==country) & (df['Year']==latest_year)]['GDP_Pct'].values[0] * 100:.1f}%",  # Fixed parenthesis
+                f"${df[(df['Country']==country) & (df['Year']==latest_year)]['Spending (USD)'].values[0] / 50e6:,.0f}",
+                f"{(df[(df['Country']==country) & (df['Year']==latest_year)]['Spending (USD)'].values[0] / df[(df['Country']==country) & (df['Year']==latest_year-5)]['Spending (USD)'].values[0] - 1) * 100:+.1f}%"
             ],
             'NATO Average': [
                 "2.0%",
