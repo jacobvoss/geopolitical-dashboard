@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from streamlit.components.v1 import html as st_html
+from plotly.subplots import make_subplots
+from streamlit.components.v1 import html
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -32,32 +33,40 @@ def apply_styles():
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         transition: all 0.3s ease;
     }}
+    
     .metric-card:hover {{
         transform: translateY(-2px);
         box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
     }}
+    
     .event-table {{
         width: 100%;
         border-collapse: collapse;
     }}
+    
     .event-table th,
     .event-table td {{
         padding: 8px 12px;
         text-align: left;
         border-bottom: 1px solid rgba(148, 163, 184, 0.2);
     }}
+    
     .event-table th {{
         font-weight: 500;
         color: #94a3b8;
     }}
-    .positive-change {{ color: var(--positive); }}
-    .negative-change {{ color: var(--negative); }}
-    .fade-in {{
-        opacity: 0;
-        transition: opacity 0.6s ease-out;
+    
+    .positive-change {{
+        color: var(--positive);
     }}
-    .fade-in.visible {{
+    
+    .negative-change {{
+        color: var(--negative);
+    }}
+    
+    .fade-in {{
         opacity: 1;
+        transition: opacity 0.5s ease;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -75,18 +84,19 @@ def load_data(source="SIPRI"):
         df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
     else:
         df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
-
+    
     df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending')
     df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
     df_melted = df_melted.dropna(subset=['Year'])
     df_melted['Year'] = df_melted['Year'].astype(int)
 
+    # Only calculate YoY changes for SIPRI (not for NATO)
     if source == "SIPRI":
         df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending'].pct_change() * 100
         df_melted.rename(columns={'Spending': 'Spending (USD)'}, inplace=True)
     else:
         df_melted.rename(columns={'Spending': 'Spending (% of GDP)'}, inplace=True)
-
+    
     return df_melted.dropna()
 
 # ===== EVENTS DATA =====
@@ -104,20 +114,26 @@ EVENTS = {
 def calculate_event_impact(country, year, df):
     is_nato = 'Spending (% of GDP)' in df.columns
     country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
+    
     try:
         event_idx = country_data.index[country_data['Year'] == year][0]
     except IndexError:
         return None
+        
     if event_idx == 0:
         return None
+    
     if is_nato:
+        # For NATO: Absolute difference in percentage points
         current = country_data.at[event_idx, 'Spending (% of GDP)']
         previous = country_data.at[event_idx - 1, 'Spending (% of GDP)']
         change = current - previous
     else:
+        # For SIPRI: Percentage change
         current = country_data.at[event_idx, 'Spending (USD)']
         previous = country_data.at[event_idx - 1, 'Spending (USD)']
         change = (current - previous) / previous * 100
+    
     return {
         'year': year,
         'name': EVENTS.get("Global", {}).get(year),
@@ -139,40 +155,101 @@ with st.sidebar:
     country = st.selectbox("Select Country", available_countries, index=default_index)
     compare_countries = st.multiselect("Compare With", [c for c in available_countries if c != country])
 
+# Main layout
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    fig = go.Figure()
-    primary_data = df[df['Country'] == country]
-    y_col = 'Spending (USD)' if data_source == 'SIPRI' else 'Spending (% of GDP)'
+    if data_source == "SIPRI":
+        fig = go.Figure()
+        primary_data = df[df['Country'] == country]
+        fig.add_trace(go.Scatter(
+            x=primary_data['Year'],
+            y=primary_data['Spending (USD)'],
+            name=country,
+            line=dict(color='#00d2d3', width=3),
+            mode='lines+markers',
+            hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
+        ))
 
-    if data_source == 'SIPRI':
-        fig.add_trace(go.Scatter(x=primary_data['Year'], y=primary_data[y_col], name=country,
-                                 line=dict(color='#00d2d3', width=3), mode='lines+markers',
-                                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"))
         for c in compare_countries:
             comp_data = df[df['Country'] == c]
-            fig.add_trace(go.Scatter(x=comp_data['Year'], y=comp_data[y_col], name=c,
-                                     line=dict(dash='dot', width=2), mode='lines'))
+            fig.add_trace(go.Scatter(
+                x=comp_data['Year'],
+                y=comp_data['Spending (USD)'],
+                name=c,
+                line=dict(dash='dot', width=2),
+                mode='lines',
+                hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
+            ))
+
         y_title = "Military Spending (USD Millions)"
-    else:
-        fig.add_trace(go.Bar(x=primary_data['Year'], y=primary_data[y_col], name=country, marker_color='#00d2d3'))
+        chart_title = f"{country} Military Spending — SIPRI"
+
+    else:  # NATO Data
+        fig = go.Figure()
+        primary_data = df[df['Country'] == country]
+        
+        fig.add_trace(go.Bar(
+            x=primary_data['Year'],
+            y=primary_data['Spending (% of GDP)'],
+            name=f"{country}",
+            marker_color='#00d2d3',
+            hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
+        ))
+        
         for c in compare_countries:
             comp_data = df[df['Country'] == c]
-            fig.add_trace(go.Bar(x=comp_data['Year'], y=comp_data[y_col], name=c, opacity=0.7))
-        min_year = primary_data['Year'].min()
-        max_year = primary_data['Year'].max()
-        fig.add_shape(type="line", x0=min_year, x1=max_year, y0=2.0, y1=2.0,
-                      line=dict(color="#ff6b4a", dash="dash"))
-        fig.add_annotation(x=max_year, y=2.0, text="NATO 2% Target", showarrow=False,
-                           yshift=10, font=dict(color="#ff6b4a"))
+            fig.add_trace(go.Bar(
+                x=comp_data['Year'],
+                y=comp_data['Spending (% of GDP)'],
+                name=c,
+                opacity=0.7,
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
+            ))
+        
+        # Add 2% target line
+        years = primary_data['Year']
+        if not years.empty:
+            min_year = min(years)
+            max_year = max(years)
+            
+            fig.add_shape(
+                type="line",
+                x0=min_year,
+                y0=2.0,
+                x1=max_year,
+                y1=2.0,
+                line=dict(color="#ff6b4a", width=2, dash="dash"),
+                name="NATO 2% Target"
+            )
+            
+            fig.add_annotation(
+                x=max_year,
+                y=2.0,
+                text="NATO 2% Target",
+                showarrow=False,
+                yshift=10,
+                font=dict(color="#ff6b4a"),
+                bgcolor="rgba(0,0,0,0.5)"
+            )
+        
         y_title = "Military Spending (% of GDP)"
+        chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
-    fig.update_layout(title=f"{country} Defense Spending",
-                      xaxis_title="Year", yaxis_title=y_title,
-                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                      font=dict(color='#e2e8f0', family="Inter"), height=500,
-                      margin=dict(t=80), legend=dict(orientation="h", y=1.02, x=1))
+    fig.update_layout(
+        title=chart_title,
+        xaxis_title="Year",
+        yaxis_title=y_title,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#e2e8f0', family="Inter"),
+        hovermode="x unified",
+        height=500,
+        margin=dict(t=80),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        barmode='group'
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
@@ -180,100 +257,113 @@ with col2:
     country_data = df[df['Country'] == country].sort_values('Year')
     non_zero_data = country_data[country_data[spending_col] > 0]
 
-    # === Current Spending ===
     if not non_zero_data.empty:
         latest_data = non_zero_data.iloc[-1]
         latest_year = latest_data['Year']
         current_spending = latest_data[spending_col]
-        display_value = f"${current_spending/1000:,.1f}B" if data_source == 'SIPRI' else f"{current_spending:.2f}% of GDP"
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="color: #94a3b8;">Current Spending</div>
-            <div style="font-size: 1.5rem; color: #00d2d3;">{display_value}</div>
-            <div style="color: #94a3b8;">{latest_year}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="color: #94a3b8;">Current Spending</div>
-            <div style="font-size: 1.2rem; color: #ff6b4a;">Data unavailable</div>
-        </div>
-        """, unsafe_allow_html=True)
 
-    # === 5-Year Change ===
-    if not non_zero_data.empty:
-        latest_year = non_zero_data.iloc[-1]['Year']
-        current_spending = non_zero_data.iloc[-1][spending_col]
-        past_year = latest_year - 5
-        past_data = country_data[country_data['Year'] == past_year]
-        if not past_data.empty:
-            past_value = past_data.iloc[0][spending_col]
-            if data_source == 'NATO':
-                change_str = f"{(current_spending - past_value):+.2f}pp"
-                color = "var(--positive)" if current_spending - past_value >= 0 else "var(--negative)"
-            else:
-                pct_change = (current_spending - past_value) / past_value * 100
-                change_str = f"{pct_change:+.1f}%"
-                color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
+        if data_source == "SIPRI":
             st.markdown(f"""
             <div class="metric-card fade-in">
-                <div style="color: #94a3b8;">5-Year Change</div>
-                <div style="font-size: 1.5rem; color: {color};">{change_str}</div>
-                <div style="color: #94a3b8;">{past_year} → {latest_year}</div>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1000:,.1f}B</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
             <div class="metric-card fade-in">
-                <div style="color: #94a3b8;">5-Year Change</div>
-                <div style="font-size: 1.2rem; color: #ff6b4a;">No data for {past_year}</div>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">{current_spending:.2f}% of GDP</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    # === Event Table ===
-    table_html = """
+        five_years_ago = latest_year - 5
+        past_data = country_data[country_data['Year'] == five_years_ago]
+        if not past_data.empty:
+            spending_5y_ago = past_data.iloc[0][spending_col]
+            if data_source == "NATO":
+                change = current_spending - spending_5y_ago
+                change_str = f"{change:+.2f}pp"
+            else:
+                change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
+                change_str = f"{change:+.1f}%"
+            
+            change_color = "var(--positive)" if change >= 0 else "var(--negative)"
+            st.markdown(f"""
+            <div class="metric-card fade-in">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{change_str}</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Key Events Table
+    st.markdown("""
     <div class="fade-in">
-        <h3 style="margin-top: 24px;">Key Events</h3>
+        <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
         <table class="event-table">
             <thead>
-                <tr><th>Year</th><th>Event</th><th style="text-align: right;">Impact</th></tr>
-            </thead><tbody>
-    """
-    impacts = [calculate_event_impact(country, y, df) for y in EVENTS["Global"]]
-    impacts = [i for i in impacts if i]
-    impacts.sort(key=lambda x: abs(x['change']), reverse=True)
+                <tr>
+                    <th>Year</th>
+                    <th>Event</th>
+                    <th style="text-align: right;">Impact</th>
+                </tr>
+            </thead>
+            <tbody>
+    """, unsafe_allow_html=True)
 
-    if impacts:
-        for i in impacts:
-            cls = "positive-change" if i['change'] >= 0 else "negative-change"
-            change_str = f"{i['change']:+.2f}pp" if i['is_nato'] else f"{i['change']:+.1f}%"
-            table_html += f"<tr class='fade-in'><td>{i['year']}</td><td>{i['name']}</td><td class='{cls}' style='text-align:right'>{change_str}</td></tr>"
-    else:
-        table_html += "<tr><td colspan='3' style='text-align:center; color:#94a3b8;'>No event impact data available</td></tr>"
+    event_impacts = []
+    for year, event_name in EVENTS["Global"].items():
+        impact = calculate_event_impact(country, year, df)
+        if impact:
+            event_impacts.append(impact)
+    
+    event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
 
-    table_html += "</tbody></table></div>"
-    st.markdown(table_html, unsafe_allow_html=True)
+    for impact in event_impacts:
+        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
+        change_str = f"{impact['change']:+.2f}pp" if impact['is_nato'] else f"{impact['change']:+.1f}%"
+        st.markdown(f"""
+        <tr class="fade-in">
+            <td>{impact['year']}</td>
+            <td>{impact['name']}</td>
+            <td style="text-align: right;" class="{change_class}">{change_str}</td>
+        </tr>
+        """, unsafe_allow_html=True)
 
+    if not event_impacts:
+        st.markdown("""
+        <tr class="fade-in">
+            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
+        </tr>
+        """, unsafe_allow_html=True)
 
+    st.markdown("""
+            </tbody>
+        </table>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Footer
 st.divider()
 st.caption("Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports")
 
-# ===== ANIMATIONS =====
-st_html("""
+# Animations
+html("""
 <script>
-window.addEventListener('load', () => {
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('visible');
-            }
-        });
-    }, {threshold: 0.1});
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('fade-in');
+        }
+    });
+}, {threshold: 0.1});
 
-    setTimeout(() => {
-        document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
-    }, 100);
+document.querySelectorAll('.fade-in').forEach(el => {
+    el.style.opacity = 0;
+    observer.observe(el);
 });
 </script>
-""", height=0)
+""")
