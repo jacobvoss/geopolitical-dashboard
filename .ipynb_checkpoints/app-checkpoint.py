@@ -101,51 +101,63 @@ col1, col2 = st.columns([3, 1])
 with col1:
     fig = go.Figure()
 
-    primary_data = df[df['Country'] == country]
-    fig.add_trace(go.Scatter(
-        x=primary_data['Year'],
-        y=primary_data['Spending (USD)'],
-        name=country,
-        line=dict(color='#00d2d3', width=3),
-        mode='lines',
-        hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
-    ))
+    if data_source == "SIPRI":
+        primary_data = df[df['Country'] == country]
+        fig.add_trace(go.Scatter(
+            x=primary_data['Year'],
+            y=primary_data['Spending (USD)'],
+            name=country,
+            line=dict(color='#00d2d3', width=3),
+            mode='lines+markers',
+            hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
+        ))
 
-    if compare_countries:
-        line_styles = ['solid', 'dash', 'dot', 'dashdot']
-        colors = ['#ff6b4a', '#f0a202', '#a1cdf4', '#d883ff']
-        for i, c in enumerate(compare_countries):
+        for c in compare_countries:
             comp_data = df[df['Country'] == c]
             fig.add_trace(go.Scatter(
                 x=comp_data['Year'],
                 y=comp_data['Spending (USD)'],
                 name=c,
-                line=dict(
-                    width=2.5,
-                    dash=line_styles[i % len(line_styles)],
-                    color=colors[i % len(colors)]
-                ),
-                opacity=0.9,
+                line=dict(dash='dot', width=2),
+                mode='lines',
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
 
-    for year, event_name in sorted(EVENTS["Global"].items()):
-        impact = calculate_event_impact(country, year, df)
-        if impact:
-            fig.add_vline(
-                x=year,
-                line_width=1,
-                line_dash="dash",
-                line_color="#ff6b4a",
-                opacity=0.5,
-                annotation_text=f"{event_name}<br>{'+' if impact['change'] >= 0 else ''}{impact['change']:.1f}%",
-                annotation_position="top right",
-                annotation_font_size=10,
-                annotation_bgcolor="rgba(30,41,59,0.8)"
-            )
+        y_title = "Military Spending (USD Millions)"
+        chart_title = f"{country} Military Spending — SIPRI"
+
+    else:  # NATO Data — use bar chart
+        primary_data = df[df['Country'] == country]
+
+        # If GDP column exists, calculate % of GDP
+        if 'GDP' in primary_data.columns:
+            primary_data = primary_data.copy()
+            primary_data['% GDP'] = (primary_data['Spending (USD)'] / primary_data['GDP']) * 100
+
+            fig.add_trace(go.Bar(
+                x=primary_data['Year'],
+                y=primary_data['% GDP'],
+                name=f"{country} (% of GDP)",
+                marker_color='#00d2d3',
+                hovertemplate="<b>%{x}</b><br>%{y:.2f} of GDP<extra></extra>"
+            ))
+            y_title = "Military Spending (% of GDP)"
+        else:
+            fig.add_trace(go.Bar(
+                x=primary_data['Year'],
+                y=primary_data['Spending (USD)'],
+                name=f"{country} (USD)",
+                marker_color='#00d2d3',
+                hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
+            ))
+            y_title = "Military Spending (USD Millions)"
+
+        chart_title = f"{country} Military Spending — NATO"
 
     fig.update_layout(
-        title=f"{country} Defense Spending",
+        title=chart_title,
+        xaxis_title="Year",
+        yaxis_title=y_title,
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#e2e8f0', family="Inter"),
