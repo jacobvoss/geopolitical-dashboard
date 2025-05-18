@@ -281,16 +281,16 @@ with col2:
         latest_year = latest_data['Year']
         current_spending = latest_data['Spending (USD)']
         
-        # Current Spending Card
+        # Current Spending Card with corrected division
         st.markdown(f"""
         <div class="metric-card fade-in">
             <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1e9:,.1f}B</div>
+            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1000:,.1f}B</div>
             <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        # 5-Year Change Card
+        # 5-Year Change Card remains unchanged
         five_years_ago = latest_year - 5
         past_data = country_data[country_data['Year'] == five_years_ago]
         if not past_data.empty:
