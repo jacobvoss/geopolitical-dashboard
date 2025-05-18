@@ -39,18 +39,23 @@ apply_styles()
 def load_data(source="SIPRI"):
     if source == "SIPRI":
         df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
-    else:
+        df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending (USD)')
+        df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
+        df_melted = df_melted.dropna(subset=['Year'])
+        df_melted['Year'] = df_melted['Year'].astype(int)
+        df_melted = df_melted.sort_values(['Country', 'Year'])
+        df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
+        return df_melted.dropna()
+
+    else:  # NATO data with GDP
         df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
-    
-    df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending (USD)')
-    df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
-    df_melted = df_melted.dropna(subset=['Year'])
-    df_melted['Year'] = df_melted['Year'].astype(int)
+        # Expected structure: Country, Year, Spending (USD), GDP
+        df = df[['Country', 'Year', 'Spending (USD)', 'GDP']]
+        df['Year'] = pd.to_numeric(df['Year'], errors='coerce').astype(int)
+        df = df.sort_values(['Country', 'Year'])
+        df['YoY_Change'] = df.groupby('Country')['Spending (USD)'].pct_change() * 100
+        return df.dropna()
 
-    df_melted = df_melted.sort_values(['Country', 'Year'])
-    df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
-
-    return df_melted.dropna()
 
 # ===== EVENTS DATA =====
 EVENTS = {
