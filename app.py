@@ -39,15 +39,23 @@ apply_styles()
 @st.cache_data
 def load_data(filename):
     df = pd.read_csv(filename)
+
+    # Melt the dataframe
     df_melted = df.melt(id_vars=['Country'], 
                         var_name='Year', 
                         value_name='Spending (USD)')
+
+    # Filter out rows where Year isn't a digit
+    df_melted = df_melted[df_melted['Year'].str.match(r'^\d{4}$', na=False)]
+
     df_melted['Year'] = df_melted['Year'].astype(int)
     df_melted['Spending (USD)'] = pd.to_numeric(df_melted['Spending (USD)'], errors='coerce')
 
+    # Sort and calculate year-on-year change
     df_melted = df_melted.sort_values(['Country', 'Year'])
     df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
     return df_melted.dropna()
+
 
 # ===== DATASET SELECTION =====
 with st.sidebar:
