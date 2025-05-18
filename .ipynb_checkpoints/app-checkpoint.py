@@ -273,14 +273,15 @@ with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Current spending metric - fixed to show latest available data
-    country_data = df[df['Country'] == country]
-    if not country_data.empty:
-        # Get the latest non-zero spending value
-        latest_data = country_data[country_data['Spending (USD)'] > 0].sort_values('Year').iloc[-1]
+    country_data = df[df['Country'] == country].sort_values('Year')
+    non_zero_data = country_data[country_data['Spending (USD)'] > 0]
+    
+    if not non_zero_data.empty:
+        latest_data = non_zero_data.iloc[-1]
         latest_year = latest_data['Year']
         current_spending = latest_data['Spending (USD)']
         
+        # Current Spending Card
         st.markdown(f"""
         <div class="metric-card fade-in">
             <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
@@ -289,23 +290,21 @@ with col2:
         </div>
         """, unsafe_allow_html=True)
         
-        # 5-year change metric
-        if len(country_data) >= 5:
-            five_years_ago = max(latest_year - 5, country_data['Year'].min())
-            try:
-                spending_5y_ago = country_data[country_data['Year'] == five_years_ago]['Spending (USD)'].values[0]
-                pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
-                change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
-                
-                st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
-                    <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            except:
-                pass
+        # 5-Year Change Card
+        five_years_ago = latest_year - 5
+        past_data = country_data[country_data['Year'] == five_years_ago]
+        if not past_data.empty:
+            spending_5y_ago = past_data.iloc[0]['Spending (USD)']
+            pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
+            change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
+            st.markdown(f"""
+            <div class="metric-card fade-in">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
     
     # Event timeline with calculated impacts
     st.markdown("""
