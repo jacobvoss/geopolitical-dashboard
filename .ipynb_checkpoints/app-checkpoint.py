@@ -354,7 +354,9 @@ st.divider()
 st.caption("Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports")
 
 # Animations
-html("""
+from streamlit.components.v1 import html as st_html
+
+st_html("""
 <script>
 const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
@@ -369,4 +371,4 @@ document.querySelectorAll('.fade-in').forEach(el => {
     observer.observe(el);
 });
 </script>
-""")
+""", height=0)
