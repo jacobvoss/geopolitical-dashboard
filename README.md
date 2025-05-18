@@ -29,5 +29,5 @@ An interactive Streamlit app that visualizes trends in NATO defense spending alo
 1. Clone the repo:
 
    ```bash
-   git clone https://github.com/jacobvoss/geopolitical-dashboards.git
+   git clone https://github.com/jacobvoss/geopolitical-dashboard.git
    cd geopolitical-dashboard
