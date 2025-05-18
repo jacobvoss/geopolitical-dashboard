@@ -130,7 +130,7 @@ apply_styles()
 # ===== DATA =====
 @st.cache_data
 def load_data():
-    df = pd.read_csv('cleaned_data/cleaned_nato_spending.csv')
+    df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
     df_melted = df.melt(id_vars=['Country'], 
                         var_name='Year', 
                         value_name='Spending (USD)')
