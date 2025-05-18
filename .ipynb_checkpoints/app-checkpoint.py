@@ -179,6 +179,8 @@ with col2:
     spending_col = 'Spending (USD)' if data_source == 'SIPRI' else 'Spending (% of GDP)'
     country_data = df[df['Country'] == country].sort_values('Year')
     non_zero_data = country_data[country_data[spending_col] > 0]
+
+    # === Current Spending ===
     if not non_zero_data.empty:
         latest_data = non_zero_data.iloc[-1]
         latest_year = latest_data['Year']
@@ -191,16 +193,29 @@ with col2:
             <div style="color: #94a3b8;">{latest_year}</div>
         </div>
         """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="metric-card fade-in">
+            <div style="color: #94a3b8;">Current Spending</div>
+            <div style="font-size: 1.2rem; color: #ff6b4a;">Data unavailable</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # === 5-Year Change ===
+    if not non_zero_data.empty:
+        latest_year = non_zero_data.iloc[-1]['Year']
+        current_spending = non_zero_data.iloc[-1][spending_col]
         past_year = latest_year - 5
         past_data = country_data[country_data['Year'] == past_year]
         if not past_data.empty:
-            change = current_spending - past_data.iloc[0][spending_col]
+            past_value = past_data.iloc[0][spending_col]
             if data_source == 'NATO':
-                change_str = f"{change:+.2f}pp"
+                change_str = f"{(current_spending - past_value):+.2f}pp"
+                color = "var(--positive)" if current_spending - past_value >= 0 else "var(--negative)"
             else:
-                change = change / past_data.iloc[0][spending_col] * 100
-                change_str = f"{change:+.1f}%"
-            color = "var(--positive)" if change >= 0 else "var(--negative)"
+                pct_change = (current_spending - past_value) / past_value * 100
+                change_str = f"{pct_change:+.1f}%"
+                color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
             st.markdown(f"""
             <div class="metric-card fade-in">
                 <div style="color: #94a3b8;">5-Year Change</div>
@@ -208,7 +223,15 @@ with col2:
                 <div style="color: #94a3b8;">{past_year} → {latest_year}</div>
             </div>
             """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="metric-card fade-in">
+                <div style="color: #94a3b8;">5-Year Change</div>
+                <div style="font-size: 1.2rem; color: #ff6b4a;">No data for {past_year}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
+    # === Event Table ===
     table_html = """
     <div class="fade-in">
         <h3 style="margin-top: 24px;">Key Events</h3>
@@ -220,14 +243,18 @@ with col2:
     impacts = [calculate_event_impact(country, y, df) for y in EVENTS["Global"]]
     impacts = [i for i in impacts if i]
     impacts.sort(key=lambda x: abs(x['change']), reverse=True)
-    for i in impacts:
-        cls = "positive-change" if i['change'] >= 0 else "negative-change"
-        change_str = f"{i['change']:+.2f}pp" if i['is_nato'] else f"{i['change']:+.1f}%"
-        table_html += f"<tr class='fade-in'><td>{i['year']}</td><td>{i['name']}</td><td class='{cls}' style='text-align:right'>{change_str}</td></tr>"
-    if not impacts:
-        table_html += "<tr><td colspan='3' style='text-align:center; color:#94a3b8;'>No event data available</td></tr>"
+
+    if impacts:
+        for i in impacts:
+            cls = "positive-change" if i['change'] >= 0 else "negative-change"
+            change_str = f"{i['change']:+.2f}pp" if i['is_nato'] else f"{i['change']:+.1f}%"
+            table_html += f"<tr class='fade-in'><td>{i['year']}</td><td>{i['name']}</td><td class='{cls}' style='text-align:right'>{change_str}</td></tr>"
+    else:
+        table_html += "<tr><td colspan='3' style='text-align:center; color:#94a3b8;'>No event impact data available</td></tr>"
+
     table_html += "</tbody></table></div>"
     st.markdown(table_html, unsafe_allow_html=True)
+
 
 st.divider()
 st.caption("Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports")
