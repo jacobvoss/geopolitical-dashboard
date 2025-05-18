@@ -7,7 +7,7 @@ from streamlit.components.v1 import html
 # ===== CONFIG =====
 st.set_page_config(
     layout="wide",
-    page_title="NATO Defense Analytics",
+    page_title="NATO Defence Analytics",
     page_icon="🛡️",
     initial_sidebar_state="expanded"
 )
