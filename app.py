@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from streamlit.components.v1 import html
 
 # ===== CONFIG =====
@@ -25,6 +26,49 @@ def apply_styles():
         --negative: #ff6b4a;
     }}
     /* ... your existing CSS unchanged ... */
+    .metric-card {{
+        background-color: var(--card);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }}
+    
+    .metric-card:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+    }}
+    
+    .event-table {{
+        width: 100%;
+        border-collapse: collapse;
+    }}
+    
+    .event-table th,
+    .event-table td {{
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    }}
+    
+    .event-table th {{
+        font-weight: 500;
+        color: #94a3b8;
+    }}
+    
+    .positive-change {{
+        color: var(--positive);
+    }}
+    
+    .negative-change {{
+        color: var(--negative);
+    }}
+    
+    .fade-in {{
+        opacity: 1;
+        transition: opacity 0.5s ease;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -39,23 +83,23 @@ apply_styles()
 def load_data(source="SIPRI"):
     if source == "SIPRI":
         df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
-        df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending (USD)')
-        df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
-        df_melted = df_melted.dropna(subset=['Year'])
-        df_melted['Year'] = df_melted['Year'].astype(int)
-        df_melted = df_melted.sort_values(['Country', 'Year'])
-        df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
-        return df_melted.dropna()
-
-    else:  # NATO data with GDP
+    else:
         df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
-        # Expected structure: Country, Year, Spending (USD), GDP
-        df = df[['Country', 'Year', 'Spending (USD)', 'GDP']]
-        df['Year'] = pd.to_numeric(df['Year'], errors='coerce').astype(int)
-        df = df.sort_values(['Country', 'Year'])
-        df['YoY_Change'] = df.groupby('Country')['Spending (USD)'].pct_change() * 100
-        return df.dropna()
+    
+    df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending (USD)')
+    df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
+    df_melted = df_melted.dropna(subset=['Year'])
+    df_melted['Year'] = df_melted['Year'].astype(int)
 
+    df_melted = df_melted.sort_values(['Country', 'Year'])
+    df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
+
+    # For NATO data, we'll assume the values are % of GDP already
+    # This matches what we see in the data inspection
+    if source == "NATO":
+        df_melted.rename(columns={'Spending (USD)': 'Spending (% of GDP)'}, inplace=True)
+    
+    return df_melted.dropna()
 
 # ===== EVENTS DATA =====
 EVENTS = {
@@ -70,6 +114,9 @@ EVENTS = {
 }
 
 def calculate_event_impact(country, year, df):
+    # Check if 'Spending (USD)' or 'Spending (% of GDP)' exists in the dataframe
+    spending_col = 'Spending (USD)' if 'Spending (USD)' in df.columns else 'Spending (% of GDP)'
+    
     country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
     try:
         event_idx = country_data.index[country_data['Year'] == year][0]
@@ -104,9 +151,11 @@ with st.sidebar:
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    fig = go.Figure()
-
+    # Create the appropriate chart based on the data source
     if data_source == "SIPRI":
+        # SIPRI data - Line chart (as before)
+        fig = go.Figure()
+        
         primary_data = df[df['Country'] == country]
         fig.add_trace(go.Scatter(
             x=primary_data['Year'],
@@ -131,34 +180,70 @@ with col1:
         y_title = "Military Spending (USD Millions)"
         chart_title = f"{country} Military Spending — SIPRI"
 
-    else:  # NATO Data — use bar chart
+    else:  # NATO Data - Stacked bar chart (new implementation)
+        fig = go.Figure()
+        
         primary_data = df[df['Country'] == country]
-
-        # If GDP column exists, calculate % of GDP
-        if 'GDP' in primary_data.columns:
-            primary_data = primary_data.copy()
-            primary_data['% GDP'] = (primary_data['Spending (USD)'] / primary_data['GDP']) * 100
-
+        
+        # NATO data is already in % of GDP format
+        fig.add_trace(go.Bar(
+            x=primary_data['Year'],
+            y=primary_data['Spending (% of GDP)'],
+            name=f"{country}",
+            marker_color='#00d2d3',
+            hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
+        ))
+        
+        # Add comparison countries if selected
+        for c in compare_countries:
+            comp_data = df[df['Country'] == c]
             fig.add_trace(go.Bar(
-                x=primary_data['Year'],
-                y=primary_data['% GDP'],
-                name=f"{country} (% of GDP)",
-                marker_color='#00d2d3',
-                hovertemplate="<b>%{x}</b><br>%{y:.2f} of GDP<extra></extra>"
+                x=comp_data['Year'],
+                y=comp_data['Spending (% of GDP)'],
+                name=c,
+                opacity=0.7,
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
             ))
-            y_title = "Military Spending (% of GDP)"
-        else:
-            fig.add_trace(go.Bar(
-                x=primary_data['Year'],
-                y=primary_data['Spending (USD)'],
-                name=f"{country} (USD)",
-                marker_color='#00d2d3',
-                hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
-            ))
-            y_title = "Military Spending (USD Millions)"
+        
+        # Add horizontal line at 2% target
+        years = primary_data['Year']
+        if not years.empty:
+            min_year = min(years)
+            max_year = max(years)
+            
+            fig.add_shape(
+                type="line",
+                x0=min_year,
+                y0=2.0,
+                x1=max_year,
+                y1=2.0,
+                line=dict(
+                    color="#ff6b4a",
+                    width=2,
+                    dash="dash",
+                ),
+                name="NATO 2% Target"
+            )
+            
+            # Add annotation for the 2% line
+            fig.add_annotation(
+                x=max_year,
+                y=2.0,
+                text="NATO 2% Target",
+                showarrow=False,
+                yshift=10,
+                xshift=0,
+                font=dict(color="#ff6b4a"),
+                bgcolor="rgba(0,0,0,0.5)",
+                bordercolor="#ff6b4a",
+                borderwidth=1,
+                borderpad=4
+            )
+        
+        y_title = "Military Spending (% of GDP)"
+        chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
-        chart_title = f"{country} Military Spending — NATO"
-
+    # Common layout updates for both chart types
     fig.update_layout(
         title=chart_title,
         xaxis_title="Year",
@@ -169,32 +254,47 @@ with col1:
         hovermode="x unified",
         height=500,
         margin=dict(t=80),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        barmode='group'  # Group bars side by side for NATO data comparison
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
+    # Use appropriate spending column based on data source
+    spending_col = 'Spending (USD)' if data_source == 'SIPRI' else 'Spending (% of GDP)'
+    
     country_data = df[df['Country'] == country].sort_values('Year')
-    non_zero_data = country_data[country_data['Spending (USD)'] > 0]
+    non_zero_data = country_data[country_data[spending_col] > 0]
 
     if not non_zero_data.empty:
         latest_data = non_zero_data.iloc[-1]
         latest_year = latest_data['Year']
-        current_spending = latest_data['Spending (USD)']
+        current_spending = latest_data[spending_col]
 
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1000:,.1f}B</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        if data_source == "SIPRI":
+            # Format as billions for SIPRI data
+            st.markdown(f"""
+            <div class="metric-card fade-in">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1000:,.1f}B</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Format as percentage for NATO data
+            st.markdown(f"""
+            <div class="metric-card fade-in">
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">{current_spending:.2f}% of GDP</div>
+                <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         five_years_ago = latest_year - 5
         past_data = country_data[country_data['Year'] == five_years_ago]
         if not past_data.empty:
-            spending_5y_ago = past_data.iloc[0]['Spending (USD)']
+            spending_5y_ago = past_data.iloc[0][spending_col]
             pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
             change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
             st.markdown(f"""
