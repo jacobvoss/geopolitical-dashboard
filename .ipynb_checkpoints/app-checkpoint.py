@@ -143,7 +143,7 @@ def calculate_event_impact(country, year, df):
     }
 
 # ===== UI =====
-st.title("Defense Spending Analytics")
+st.title("Defence Spending Analytics")
 st.caption("NATO military expenditure trends with event impact analysis")
 
 with st.sidebar:
