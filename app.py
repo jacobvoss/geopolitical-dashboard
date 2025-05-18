@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 
@@ -24,7 +25,98 @@ def apply_styles():
         --positive: #00d2d3;
         --negative: #ff6b4a;
     }}
-    ...
+
+    [data-testid="stAppViewContainer"] > .main {{
+        background-color: var(--bg);
+        font-family: 'Inter', sans-serif;
+    }}
+
+    [data-testid="stSidebar"] {{
+        background-color: var(--card) !important;
+        border-right: 1px solid rgba(0, 210, 211, 0.1);
+    }}
+
+    .stSelectbox, .stSlider, .stRadio > div {{
+        background-color: var(--card) !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px !important;
+    }}
+
+    h1, h2, h3 {{
+        color: var(--text);
+        font-weight: 600;
+        font-family: 'Inter', sans-serif;
+    }}
+
+    [data-testid="stMetricValue"] {{
+        font-size: 1.5rem;
+        color: var(--primary) !important;
+        font-weight: 600;
+    }}
+
+    .event-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Inter', sans-serif;
+        table-layout: fixed;
+    }}
+    
+    .event-table tr {{
+        transition: all 0.2s ease;
+    }}
+    
+    .event-table tr:hover {{
+        background-color: rgba(0, 210, 211, 0.05);
+    }}
+    
+    .event-table td, .event-table th {{
+        padding: 10px 12px;
+        border-bottom: 1px solid #334155;
+        font-size: 0.9rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }}
+    
+    .event-table th {{
+        text-align: left;
+        font-size: 0.8rem;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid #334155;
+    }}
+    
+    .event-table td:nth-child(1) {{ width: 15%; }}
+    .event-table td:nth-child(2) {{ width: 65%; }}
+    .event-table td:nth-child(3) {{ width: 20%; text-align: right; }}
+    
+    .positive-change {{
+        color: var(--positive) !important;
+        font-weight: 500;
+    }}
+    
+    .negative-change {{
+        color: var(--negative) !important;
+        font-weight: 500;
+    }}
+    
+    .metric-card {{
+        background-color: var(--card);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+        border-left: 4px solid var(--primary);
+    }}
+    
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(5px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+    
+    .fade-in {{
+        animation: fadeIn 0.3s ease-out forwards;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -35,73 +127,26 @@ def apply_styles():
 
 apply_styles()
 
-# ===== DATA LOADING =====
+# ===== DATA =====
 @st.cache_data
-def load_data(filename):
-    df = pd.read_csv(filename)
-
-    # Melt the dataframe
+def load_data():
+    df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
     df_melted = df.melt(id_vars=['Country'], 
-                        var_name='Year', 
-                        value_name='Spending (USD)')
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-    # Filter out rows where Year isn't a digit
-    df_melted = df_melted[df_melted['Year'].str.match(r'^\d{4}$', na=False)]
-
-=======
->>>>>>> parent of c38be8a (Revert "ah")
-=======
->>>>>>> parent of c38be8a (Revert "ah")
+                       var_name='Year', 
+                       value_name='Spending (USD)')
     df_melted['Year'] = df_melted['Year'].astype(int)
-    df_melted['Spending (USD)'] = pd.to_numeric(df_melted['Spending (USD)'], errors='coerce')
-
-    # Sort and calculate year-on-year change
+    
+    # Calculate year-over-year changes
     df_melted = df_melted.sort_values(['Country', 'Year'])
     df_melted['YoY_Change'] = df_melted.groupby('Country')['Spending (USD)'].pct_change() * 100
-<<<<<<< HEAD
-<<<<<<< HEAD
+    
     return df_melted.dropna()
 
-=======
-    
-    return df_melted.dropna(subset=['YoY_Change']) # Ensure dropna is on relevant column
-=======
-    
-    return df_melted.dropna(subset=['YoY_Change']) # Ensure dropna is on relevant column
-
 df = load_data()
-latest_year_global = df['Year'].max() # Renamed for clarity from original 'latest_year'
-available_countries = df['Country'].unique().tolist()
->>>>>>> parent of c38be8a (Revert "ah")
-
-df = load_data()
-latest_year_global = df['Year'].max() # Renamed for clarity from original 'latest_year'
-available_countries = df['Country'].unique().tolist()
->>>>>>> parent of c38be8a (Revert "ah")
-
-# ===== DATASET SELECTION =====
-with st.sidebar:
-    st.header("Filters")
-    data_version = st.radio(
-        "Dataset Version",
-        ["Original", "Updated"],
-        horizontal=True
-    )
-
-# File paths
-if data_version == "Original":
-    df = load_data("cleaned_data/SIPRI_spending_clean.csv")
-    version_label = "Original Dataset"
-else:
-    df = load_data("cleaned_data/nato_defense_spending_clean.csv")
-    version_label = "Updated Dataset"
-
-available_countries = df['Country'].unique().tolist()
 latest_year = df['Year'].max()
+available_countries = df['Country'].unique().tolist()
 
-# ===== EVENT IMPACT SETUP =====
+# Historical events - just years and names
 EVENTS = {
     "Global": {
         2001: "9/11 Attacks",
@@ -112,71 +157,56 @@ EVENTS = {
     }
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 def calculate_event_impact(country, year, df):
-    country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
-    try:
-        event_idx = country_data.index[country_data['Year'] == year][0]
-    except IndexError:
-        return None
-
-    if event_idx == 0:
-        return None
-
-=======
-=======
->>>>>>> parent of c38be8a (Revert "ah")
-def calculate_event_impact(country, year, df_input): # Renamed df to df_input to avoid conflict
     """Calculate actual YoY change for events with proper bounds checking"""
-    country_data = df_input[df_input['Country'] == country].sort_values('Year').reset_index(drop=True)
+    country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
     
     try:
         event_idx = country_data.index[country_data['Year'] == year][0]
     except IndexError:
         return None  # Event year not in data
     
-    # YoY_Change is already calculated, so we just need to fetch it
-    # The dropna in load_data might have removed the first year, so direct access is fine
-    # if event_idx == 0: # This check might not be needed if first year is already dropped
-    #     return None  # No previous year to compare (handled by dropna on YoY_Change)
+    if event_idx == 0:
+        return None  # No previous year to compare
     
->>>>>>> parent of c38be8a (Revert "ah")
     yoy_change = country_data.at[event_idx, 'YoY_Change']
+    
     if pd.isna(yoy_change) or abs(yoy_change) == float('inf'):
         return None
-
+    
     return {
         'year': year,
         'name': EVENTS.get("Global", {}).get(year),
         'change': yoy_change,
-        # 'prev_year' might not be directly relevant if YoY_Change is pre-calculated
-        # 'prev_year': country_data.at[event_idx - 1, 'Year'] if event_idx > 0 else None 
+        'prev_year': country_data.at[event_idx - 1, 'Year']
     }
 
-# ===== UI: COUNTRY SELECTORS =====
-country = st.sidebar.selectbox(
-    "Select Country",
-    available_countries,
-    index=available_countries.index('United States') if 'United States' in available_countries else 0
-)
-
-compare_countries = st.sidebar.multiselect(
-    "Compare With",
-    [c for c in available_countries if c != country]
-)
-
-# ===== PAGE TITLE =====
+# ===== UI =====
 st.title("Defense Spending Analytics")
-st.caption(f"{version_label} • NATO military expenditure trends with event impact analysis")
+st.caption("NATO military expenditure trends with event impact analysis")
 
-# ===== MAIN VISUALIZATION =====
+# Sidebar controls
+with st.sidebar:
+    st.header("Filters")
+    country = st.selectbox(
+        "Select Country",
+        available_countries,
+        index=available_countries.index('United States') if 'United States' in available_countries else 0
+    )
+    
+    compare_countries = st.multiselect(
+        "Compare With",
+        [c for c in available_countries if c != country],
+        default=None  # Removed default comparisons
+    )
+
+# Main visualization
 col1, col2 = st.columns([3, 1])
 
 with col1:
     fig = go.Figure()
-
-    # Main line
+    
+    # Primary country - solid line
     primary_data = df[df['Country'] == country]
     fig.add_trace(go.Scatter(
         x=primary_data['Year'],
@@ -186,11 +216,12 @@ with col1:
         mode='lines',
         hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
     ))
-
-    # Comparison lines
+    
+    # Comparison countries - different line styles and colors
     if compare_countries:
         line_styles = ['solid', 'dash', 'dot', 'dashdot']
         colors = ['#ff6b4a', '#f0a202', '#a1cdf4', '#d883ff']
+        
         for i, c in enumerate(compare_countries):
             comp_data = df[df['Country'] == c]
             fig.add_trace(go.Scatter(
@@ -205,21 +236,11 @@ with col1:
                 opacity=0.9,
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
-<<<<<<< HEAD
-
-    # Event annotations
-    for year, event_name in sorted(EVENTS["Global"].items()):
-        impact = calculate_event_impact(country, year, df)
-=======
     
     # Add event annotations with calculated impacts
     all_events = EVENTS.get("Global", {})
     for year, event_name in sorted(all_events.items()):
-        impact = calculate_event_impact(country, year, df) # Pass df here
-<<<<<<< HEAD
->>>>>>> parent of c38be8a (Revert "ah")
-=======
->>>>>>> parent of c38be8a (Revert "ah")
+        impact = calculate_event_impact(country, year, df)
         if impact and impact['change'] is not None:
             fig.add_vline(
                 x=year,
@@ -232,186 +253,61 @@ with col1:
                 annotation_font_size=10,
                 annotation_bgcolor="rgba(30,41,59,0.8)"
             )
-
+    
     fig.update_layout(
-        title=f"{country} Defense Spending ({version_label})",
+        title=f"{country} Defense Spending",
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#e2e8f0', family="Inter"),
         hovermode="x unified",
         height=500,
         margin=dict(t=80),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
+    # Current spending metric - fixed to show latest available data
     country_data = df[df['Country'] == country]
-<<<<<<< HEAD
-<<<<<<< HEAD
-    country_data['Spending (USD)'] = pd.to_numeric(country_data['Spending (USD)'], errors='coerce')
-    non_zero_data = country_data[country_data['Spending (USD)'] > 0]
-
-    if not non_zero_data.empty:
-        latest_data = non_zero_data.sort_values('Year').iloc[-1]
+    if not country_data.empty:
+        # Get the latest non-zero spending value
+        latest_data = country_data[country_data['Spending (USD)'] > 0].sort_values('Year').iloc[-1]
         latest_year = latest_data['Year']
         current_spending = latest_data['Spending (USD)']
-=======
-=======
->>>>>>> parent of c38be8a (Revert "ah")
-    current_spending_val = None # Initialize in case it's not set
-    latest_year_val = None
-
-    if not country_data.empty:
-        latest_data_filtered = country_data[country_data['Spending (USD)'] > 0]
         
-        if not latest_data_filtered.empty:
-            latest_data = latest_data_filtered.sort_values('Year').iloc[-1]
-            latest_year_val = latest_data['Year']
-            current_spending_val = latest_data['Spending (USD)']
-            
-            current_spending_display = f"${current_spending_val/1000:,.1f}B"
-            latest_year_display = str(latest_year_val)
-        else:
-            current_spending_display = "N/A"
-            latest_year_display = "No positive spending data"
-<<<<<<< HEAD
->>>>>>> parent of c38be8a (Revert "ah")
-=======
->>>>>>> parent of c38be8a (Revert "ah")
-
         st.markdown(f"""
         <div class="metric-card fade-in">
             <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">{current_spending_display}</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year_display}</div>
+            <div style="font-size: 1.5rem; font-weight: 600; color: #00d2d3;">${current_spending/1e9:,.1f}B</div>
+            <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
         </div>
         """, unsafe_allow_html=True)
-<<<<<<< HEAD
-<<<<<<< HEAD
-
+        
+        # 5-year change metric
         if len(country_data) >= 5:
             five_years_ago = max(latest_year - 5, country_data['Year'].min())
-            past_data = country_data[country_data['Year'] == five_years_ago]
-
-            if not past_data.empty:
-                spending_5y_ago = past_data.iloc[0]['Spending (USD)']
+            try:
+                spending_5y_ago = country_data[country_data['Year'] == five_years_ago]['Spending (USD)'].values[0]
                 pct_change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
                 change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
-
+                
                 st.markdown(f"""
                 <div class="metric-card fade-in">
                     <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">
-                        {'+' if pct_change >= 0 else ''}{pct_change:.1f}%
-                    </div>
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
                     <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year}</div>
                 </div>
                 """, unsafe_allow_html=True)
-
-    # Timeline of events
-=======
-        
-        # 5-year change metric
-        if current_spending_val is not None and latest_year_val is not None: # Ensure current spending data is valid
-            # Original logic used len(country_data) >= 5; adapt based on available data points for the period
-            five_years_ago = max(latest_year_val - 5, country_data['Year'].min())
-            
-            spending_5y_ago_series = country_data[country_data['Year'] == five_years_ago]['Spending (USD)']
-
-            if not spending_5y_ago_series.empty:
-                spending_5y_ago = spending_5y_ago_series.values[0]
-                if spending_5y_ago > 0: # Avoid division by zero and ensure meaningful comparison
-                    pct_change = (current_spending_val - spending_5y_ago) / spending_5y_ago * 100
-                    change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
-                    
-                    st.markdown(f"""
-                    <div class="metric-card fade-in">
-                        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                        <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
-                        <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year_val}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else: # spending_5y_ago was 0 or not positive
-                    st.markdown(f"""
-                    <div class="metric-card fade-in">
-                        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A (past spending was zero or invalid)</div>
-                        <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year_val}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else: # No data for five_years_ago
-                st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A (insufficient data for comparison)</div>
-                    <div style="font-size: 0.9rem; color: #94a3b8;">Reference year: {latest_year_val}</div>
-                </div>
-                """, unsafe_allow_html=True)
-=======
-        
-        # 5-year change metric
-        if current_spending_val is not None and latest_year_val is not None: # Ensure current spending data is valid
-            # Original logic used len(country_data) >= 5; adapt based on available data points for the period
-            five_years_ago = max(latest_year_val - 5, country_data['Year'].min())
-            
-            spending_5y_ago_series = country_data[country_data['Year'] == five_years_ago]['Spending (USD)']
-
-            if not spending_5y_ago_series.empty:
-                spending_5y_ago = spending_5y_ago_series.values[0]
-                if spending_5y_ago > 0: # Avoid division by zero and ensure meaningful comparison
-                    pct_change = (current_spending_val - spending_5y_ago) / spending_5y_ago * 100
-                    change_color = "var(--positive)" if pct_change >= 0 else "var(--negative)"
-                    
-                    st.markdown(f"""
-                    <div class="metric-card fade-in">
-                        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                        <div style="font-size: 1.5rem; font-weight: 600; color: {change_color};">{'+' if pct_change >= 0 else ''}{pct_change:.1f}%</div>
-                        <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year_val}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else: # spending_5y_ago was 0 or not positive
-                    st.markdown(f"""
-                    <div class="metric-card fade-in">
-                        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A (past spending was zero or invalid)</div>
-                        <div style="font-size: 0.9rem; color: #94a3b8;">{five_years_ago} → {latest_year_val}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else: # No data for five_years_ago
-                st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A (insufficient data for comparison)</div>
-                    <div style="font-size: 0.9rem; color: #94a3b8;">Reference year: {latest_year_val}</div>
-                </div>
-                """, unsafe_allow_html=True)
->>>>>>> parent of c38be8a (Revert "ah")
-        elif current_spending_display == "N/A": # If current spending is N/A, 5-year change is also N/A
-             st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-    else: # country_data is empty
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Current Spending</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A</div>
-            <div style="font-size: 0.9rem; color: #94a3b8;">No data for selected country.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class="metric-card fade-in">
-            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">5-Year Change</div>
-            <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">N/A</div>
-        </div>
-        """, unsafe_allow_html=True)
-
+            except:
+                pass
+    
     # Event timeline with calculated impacts
->>>>>>> parent of c38be8a (Revert "ah")
     st.markdown("""
     <div class="fade-in">
         <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
@@ -425,56 +321,38 @@ with col2:
             </thead>
             <tbody>
     """, unsafe_allow_html=True)
-<<<<<<< HEAD
-
+    
+    # Get and display events with calculated impacts
+    all_events = EVENTS.get("Global", {})
     event_impacts = []
-    for year, event_name in EVENTS["Global"].items():
+    
+    for year, event_name in all_events.items():
         impact = calculate_event_impact(country, year, df)
-=======
-    
-    all_events_global = EVENTS.get("Global", {}) # Ensure using the correct variable name
-    event_impacts = []
-    
-    for year, event_name in all_events_global.items():
-        impact = calculate_event_impact(country, year, df) # Pass df here
-<<<<<<< HEAD
->>>>>>> parent of c38be8a (Revert "ah")
-=======
->>>>>>> parent of c38be8a (Revert "ah")
         if impact and impact['change'] is not None:
             event_impacts.append(impact)
-
+    
+    # Sort by absolute impact for most significant events first
     event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
-<<<<<<< HEAD
-<<<<<<< HEAD
-
+    
     for impact in event_impacts:
         change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
         change_text = f"{'+' if impact['change'] >= 0 else ''}{impact['change']:.1f}%"
-=======
-=======
->>>>>>> parent of c38be8a (Revert "ah")
-    
-    for impact_item in event_impacts: # Renamed to avoid conflict
-        change_class = "positive-change" if impact_item['change'] >= 0 else "negative-change"
-        change_text = f"{'+' if impact_item['change'] >= 0 else ''}{impact_item['change']:.1f}%"
         
->>>>>>> parent of c38be8a (Revert "ah")
         st.markdown(f"""
         <tr class="fade-in">
-            <td>{impact_item['year']}</td>
-            <td>{impact_item['name']}</td>
+            <td>{impact['year']}</td>
+            <td>{impact['name']}</td>
             <td style="text-align: right;" class="{change_class}">{change_text}</td>
         </tr>
         """, unsafe_allow_html=True)
-
+    
     if not event_impacts:
         st.markdown("""
         <tr class="fade-in">
-            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available or applicable</td>
+            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
         </tr>
         """, unsafe_allow_html=True)
-
+    
     st.markdown("""
             </tbody>
         </table>
@@ -483,11 +361,14 @@ with col2:
 
 # Footer
 st.divider()
-st.caption("Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports")
+st.caption("""
+Data Sources: SIPRI Military Expenditure Database • NATO Annual Reports
+""")
 
-# Animation Script
+# Add animations
 html("""
 <script>
+// Simple fade-in animation for elements
 const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -495,8 +376,9 @@ const observer = new IntersectionObserver((entries) => {
         }
     });
 }, {threshold: 0.1});
+
 document.querySelectorAll('.fade-in').forEach(el => {
-    el.style.opacity = 0; // Ensure initial state for animation
+    el.style.opacity = 0;
     observer.observe(el);
 });
 </script>
