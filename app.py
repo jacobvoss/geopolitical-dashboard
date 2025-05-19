@@ -166,7 +166,7 @@ def calculate_event_impact(country, year, df):
     }
 
 # ===== Forecast Models =====
-def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
+def forecast_spending(data, years_to_forecast, model_type='LinearRegression'):
     """
     Forecast future spending using a time series model.
 
@@ -185,11 +185,11 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     if model_type == 'ARIMA':
         try:
             # ARIMA Model
-            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed.  This is CRUCIAL.
+            model = ARIMA(history, order=(5,1,0))
             model_fit = model.fit()
             forecast_result = model_fit.get_forecast(steps=years_to_forecast)
             forecasted_values = forecast_result.predicted_mean
-            confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+            confidence_intervals = forecast_result.conf_int(alpha=0.05)
         except Exception as e:
             print(f"Error in ARIMA: {e}")
             return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
@@ -197,12 +197,10 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     elif model_type == 'ExponentialSmoothing':
         try:
             # Exponential Smoothing
-            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params,  CRUCIAL
+            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5)
             model_fit = model.fit()
             forecast_result = model_fit.forecast(steps=years_to_forecast)
             forecasted_values = forecast_result
-            # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
-            # A more robust approach would involve bootstrapping or simulation.
             mse = np.mean((model_fit.fittedvalues - history) ** 2)
             std_error = np.sqrt(mse)
             confidence_intervals = np.array([
@@ -218,13 +216,35 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
         model = np.polyfit(years, history, 1)  # Fit a linear trend
         forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
         forecasted_values = np.polyval(model, forecasted_years)
-        # Simplified confidence intervals (assuming constant variance)
+        # More robust confidence intervals using the t-distribution
+        from scipy.stats import t
+        n = len(history)
+        p = 2  # Number of parameters in the model (intercept and slope)
+        df = n - p  # Degrees of freedom
+        t_value = t.ppf(0.975, df)  # Two-tailed t-value for 95% confidence
+        
         residuals = history - np.polyval(model, years)
-        std_error = np.std(residuals)
-        confidence_intervals = np.array([
-            forecasted_values - 1.96 * std_error,
-            forecasted_values + 1.96 * std_error
-        ]).T
+        mse = np.mean(residuals ** 2)
+        
+        # Calculate the variance-covariance matrix
+        X = np.vstack([years, np.ones(n)]).T
+        try:
+            cov_matrix = np.linalg.inv(X.T @ X) * mse
+            var_y_pred = [1 + np.array([y, 1]) @ cov_matrix @ np.array([y, 1]) for y in forecasted_years]
+            std_y_pred = np.sqrt(var_y_pred)
+            confidence_intervals = np.array([
+                forecasted_values - t_value * std_y_pred,
+                forecasted_values + t_value * std_y_pred
+            ]).T
+        except np.linalg.LinAlgError:
+            print("Error: Singular matrix in Linear Regression confidence interval calculation.  Returning less reliable intervals.")
+            std_error = np.std(residuals)
+            confidence_intervals = np.array([
+                forecasted_values - 1.96 * std_error,
+                forecasted_values + 1.96 * std_error
+            ]).T
+
+        
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     
@@ -245,7 +265,7 @@ with st.sidebar:
     
     st.header("Forecast")
     forecast_years = st.slider("Years to Forecast", min_value=1, max_value=10, value=5)
-    forecast_model = st.selectbox("Forecast Model", ['ARIMA', 'ExponentialSmoothing', 'LinearRegression'])
+    forecast_model = st.selectbox("Forecast Model", ['LinearRegression', 'ARIMA', 'ExponentialSmoothing']) # Changed order
 
 # Main layout
 col1, col2 = st.columns([3, 1])
@@ -274,7 +294,7 @@ with col1:
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
 
-        y_title = "Spending (USD)"  # Fixed column name to match dataframe
+        y_title = "Spending (USD)"
         chart_title = f"{country} Military Spending — SIPRI"
 
     else:  # NATO Data
@@ -325,13 +345,13 @@ with col1:
                 bgcolor="rgba(0,0,0,0.5)"
             )
         
-        y_title = "Spending (% of GDP)"  # Fixed column name to match dataframe
+        y_title = "Spending (% of GDP)"
         chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
     fig.update_layout(
         title=chart_title,
         xaxis_title="Year",
-        yaxis_title="Military Spending",  # More generic title for y-axis
+        yaxis_title="Military Spending",
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#e2e8f0', family="Inter"),
@@ -348,29 +368,29 @@ with col1:
         historical_data = df[df['Country'] == country].set_index('Year')
         
         # Use the correct column name for forecast based on the data source
-        forecast_col = y_title  # This matches the corrected column names above
+        forecast_col = y_title
         
-        if forecast_col in historical_data.columns:  # Check if the column exists in the dataframe
+        if forecast_col in historical_data.columns:
             historical_series = historical_data[forecast_col]
             forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
             forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
             
-            if forecasted_values is not None and confidence_intervals is not None:  # Check if the forecast was successful
+            if forecasted_values is not None and confidence_intervals is not None:
                 fig.add_trace(go.Scatter(
                     x=forecast_years_list,
                     y=forecasted_values,
                     name=f"{forecast_model} Forecast",
-                    line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+                    line=dict(color='#ffdb58', dash='dash'),
                     mode='lines',
-                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"  # Adjust format as needed
+                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"
                 ))
                 
                 # Add confidence intervals as a shaded region
                 fig.add_trace(go.Scatter(
-                    x=forecast_years_list + forecast_years_list[::-1],  # Reverse x-axis for lower bound
+                    x=forecast_years_list + forecast_years_list[::-1],
                     y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
                     fill='tozeroy',
-                    fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+                    fillcolor='rgba(255, 219, 88, 0.3)',
                     line=dict(color='rgba(0,0,0,0)'),
                     name='95% Confidence Interval',
                     hoverinfo='skip'
