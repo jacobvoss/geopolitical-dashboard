@@ -300,7 +300,36 @@ with col2:
             """, unsafe_allow_html=True)
 
     # Key Events Table
-    st.markdown("""
+    event_impacts = []
+    for year, event_name in EVENTS["Global"].items():
+        impact = calculate_event_impact(country, year, df)
+        if impact:
+            event_impacts.append(impact)
+    
+    event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
+    
+    # Build table rows first
+    table_rows = ""
+    for impact in event_impacts:
+        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
+        change_str = f"{impact['change']:+.2f}pp" if impact['is_nato'] else f"{impact['change']:+.1f}%"
+        table_rows += f"""
+        <tr class="fade-in">
+            <td>{impact['year']}</td>
+            <td>{impact['name']}</td>
+            <td style="text-align: right;" class="{change_class}">{change_str}</td>
+        </tr>
+        """
+    
+    if not event_impacts:
+        table_rows = """
+        <tr class="fade-in">
+            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
+        </tr>
+        """
+    
+    # Display entire table at once
+    st.markdown(f"""
     <div class="fade-in">
         <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
         <table class="event-table">
@@ -312,39 +341,12 @@ with col2:
                 </tr>
             </thead>
             <tbody>
-    """, unsafe_allow_html=True)
-
-    event_impacts = []
-    for year, event_name in EVENTS["Global"].items():
-        impact = calculate_event_impact(country, year, df)
-        if impact:
-            event_impacts.append(impact)
-    
-    event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
-
-    for impact in event_impacts:
-        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
-        change_str = f"{impact['change']:+.2f}pp" if impact['is_nato'] else f"{impact['change']:+.1f}%"
-        st.markdown(f"""
-        <tr class="fade-in">
-            <td>{impact['year']}</td>
-            <td>{impact['name']}</td>
-            <td style="text-align: right;" class="{change_class}">{change_str}</td>
-        </tr>
-        """, unsafe_allow_html=True)
-
-    if not event_impacts:
-        st.markdown("""
-        <tr class="fade-in">
-            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
-        </tr>
-        """, unsafe_allow_html=True)
-
-    st.markdown("""
+                {table_rows}
             </tbody>
         </table>
     </div>
     """, unsafe_allow_html=True)
+
 
 # Footer
 st.divider()
