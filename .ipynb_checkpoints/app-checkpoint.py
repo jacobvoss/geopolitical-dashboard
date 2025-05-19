@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit.components.v1 import html
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+import numpy as np
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -163,6 +166,62 @@ def calculate_event_impact(country, year, df):
         'is_nato': is_nato
     }
 
+# ===== Forecast Models =====
+def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
+    """
+    Forecast future spending using a time series model.
+
+    Args:
+        data (pd.Series): Historical spending data.
+        years_to_forecast (int): Number of years to forecast.
+        model_type (str): 'ARIMA', 'ExponentialSmoothing', or 'LinearRegression'.
+
+    Returns:
+        tuple: (forecasted_values, confidence_intervals)
+            forecasted_values (np.ndarray): Array of forecasted spending values.
+            confidence_intervals (np.ndarray): Array of confidence intervals (lower, upper).
+    """
+    history = data.values.astype(float)
+    
+    if model_type == 'ARIMA':
+        # ARIMA Model
+        model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
+        model_fit = model.fit()
+        forecast_result = model_fit.get_forecast(steps=years_to_forecast)
+        forecasted_values = forecast_result.predicted_mean
+        confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+    elif model_type == 'ExponentialSmoothing':
+        # Exponential Smoothing
+        model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
+        model_fit = model.fit()
+        forecast_result = model_fit.forecast(steps=years_to_forecast)
+        forecasted_values = forecast_result
+        # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
+        # A more robust approach would involve bootstrapping or simulation.
+        mse = np.mean((model_fit.fittedvalues - history) ** 2)
+        std_error = np.sqrt(mse)
+        confidence_intervals = np.array([
+            forecasted_values - 1.96 * std_error,
+            forecasted_values + 1.96 * std_error
+        ]).T
+    elif model_type == 'LinearRegression':
+        # Linear Regression (simple trend extrapolation)
+        years = np.arange(len(history))
+        model = np.polyfit(years, history, 1)  # Fit a linear trend
+        forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
+        forecasted_values = np.polyval(model, forecasted_years)
+        # Simplified confidence intervals (assuming constant variance)
+        residuals = history - np.polyval(model, years)
+        std_error = np.std(residuals)
+        confidence_intervals = np.array([
+            forecasted_values - 1.96 * std_error,
+            forecasted_values + 1.96 * std_error
+        ]).T
+    else:
+        raise ValueError(f"Invalid model type: {model_type}")
+    
+    return forecasted_values, confidence_intervals
+
 # ===== UI =====
 st.title("Defence Spending Analytics")
 st.caption("NATO military expenditure trends with event impact analysis")
@@ -175,6 +234,10 @@ with st.sidebar:
     default_index = available_countries.index('United States') if 'United States' in available_countries else 0
     country = st.selectbox("Select Country", available_countries, index=default_index)
     compare_countries = st.multiselect("Compare With", [c for c in available_countries if c != country])
+    
+    st.header("Forecast")
+    forecast_years = st.slider("Years to Forecast", min_value=1, max_value=10, value=5)
+    forecast_model = st.selectbox("Forecast Model", ['ARIMA', 'ExponentialSmoothing', 'LinearRegression'])
 
 # Main layout
 col1, col2 = st.columns([3, 1])
@@ -271,6 +334,33 @@ with col1:
         barmode='group'
     )
 
+    # Add forecast to the plot
+    if forecast_years > 0:
+        last_year = df[df['Country'] == country]['Year'].max()
+        historical_data = df[df['Country'] == country].set_index('Year')[y_title]  # Use y_title
+        forecasted_values, confidence_intervals = forecast_spending(historical_data, forecast_years, forecast_model)
+        forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
+
+        fig.add_trace(go.Scatter(
+            x=forecast_years_list,
+            y=forecasted_values,
+            name=f"{forecast_model} Forecast",
+            line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+            mode='lines',
+            hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
+        ))
+        
+        # Add confidence intervals as a shaded region
+        fig.add_trace(go.Scatter(
+            x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
+            y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
+            fill='tozeroy',
+            fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+            line=dict(color='rgba(0,0,0,0)'),
+            name='95% Confidence Interval',
+            hoverinfo='skip'
+        ))
+
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
@@ -327,7 +417,6 @@ with col2:
         <span title="Impacts are approximate and may not be directly caused by these events." style="cursor: help; font-size: 0.85em; color: #94a3b8;">ⓘ</span>
     </h3>
     """, unsafe_allow_html=True)
-
     
     event_impacts = []
     for year, event_name in EVENTS["Global"].items():
