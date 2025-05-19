@@ -274,7 +274,7 @@ with col1:
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
 
-        y_title = "Military Spending (USD Millions)"
+        y_title = "Spending (USD)"  # Fixed column name to match dataframe
         chart_title = f"{country} Military Spending — SIPRI"
 
     else:  # NATO Data
@@ -325,13 +325,13 @@ with col1:
                 bgcolor="rgba(0,0,0,0.5)"
             )
         
-        y_title = "Military Spending (% of GDP)"
+        y_title = "Spending (% of GDP)"  # Fixed column name to match dataframe
         chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
     fig.update_layout(
         title=chart_title,
         xaxis_title="Year",
-        yaxis_title=y_title,
+        yaxis_title="Military Spending",  # More generic title for y-axis
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#e2e8f0', family="Inter"),
@@ -347,24 +347,27 @@ with col1:
         last_year = df[df['Country'] == country]['Year'].max()
         historical_data = df[df['Country'] == country].set_index('Year')
         
-        if y_title in historical_data.columns: # Check if the y_title exists in the dataframe
-            historical_data = historical_data[y_title]
-            forecasted_values, confidence_intervals = forecast_spending(historical_data, forecast_years, forecast_model)
+        # Use the correct column name for forecast based on the data source
+        forecast_col = y_title  # This matches the corrected column names above
+        
+        if forecast_col in historical_data.columns:  # Check if the column exists in the dataframe
+            historical_series = historical_data[forecast_col]
+            forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
             forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
             
-            if forecasted_values is not None and confidence_intervals is not None: # Check if the forecast was successful
+            if forecasted_values is not None and confidence_intervals is not None:  # Check if the forecast was successful
                 fig.add_trace(go.Scatter(
                     x=forecast_years_list,
                     y=forecasted_values,
                     name=f"{forecast_model} Forecast",
                     line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
                     mode='lines',
-                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
+                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"  # Adjust format as needed
                 ))
                 
                 # Add confidence intervals as a shaded region
                 fig.add_trace(go.Scatter(
-                    x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
+                    x=forecast_years_list + forecast_years_list[::-1],  # Reverse x-axis for lower bound
                     y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
                     fill='tozeroy',
                     fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
@@ -375,7 +378,7 @@ with col1:
             else:
                 st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
         else:
-            st.error(f"The column '{y_title}' is not found in the data for {country}.  Please check the data source and column names.")
+            st.error(f"The column '{forecast_col}' is not found in the data for {country}. Please check the data source and column names.")
 
     st.plotly_chart(fig, use_container_width=True)
 
