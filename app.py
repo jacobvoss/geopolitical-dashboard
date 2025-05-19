@@ -1,10 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from streamlit.components.v1 import html
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import numpy as np
 
 # ===== CONFIG =====
@@ -27,8 +24,6 @@ def apply_styles():
         --text: #e2e8f0;
         --positive: #00d2d3;
         --negative: #ff6b4a;
-        --neutral: #94a3b8;
-        --forecast: #ffd166;
     }}
     .metric-card {{
         background-color: var(--card);
@@ -94,25 +89,6 @@ def apply_styles():
         opacity: 1;
         transition: opacity 0.5s ease;
     }}
-    
-    /* Forecast options styling */
-    .stRadio > div {{
-        flex-direction: row;
-        gap: 10px;
-    }}
-    
-    .stRadio label {{
-        background-color: var(--card);
-        padding: 8px 16px;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin: 0;
-        transition: all 0.2s ease;
-    }}
-    
-    .stRadio label:hover {{
-        border-color: var(--primary);
-    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -143,128 +119,6 @@ def load_data(source="SIPRI"):
         df_melted.rename(columns={'Spending': 'Spending (% of GDP)'}, inplace=True)
     
     return df_melted.dropna()
-
-# ===== FORECAST FUNCTIONS =====
-def generate_forecast(data, method="ARIMA", forecast_years=5, confidence=0.95):
-    """Generate forecast based on historical data using various methods"""
-    # Extract years and values
-    years = data['Year'].values
-    values = data['Spending'].values
-    
-    # Check if we have enough data
-    if len(values) < 5:
-        return None, None, None
-    
-    # Create forecast years
-    last_year = years[-1]
-    forecast_x = np.array([last_year + i + 1 for i in range(forecast_years)])
-    
-    # Different forecast methods
-    if method == "Linear":
-        # Simple linear regression
-        coeffs = np.polyfit(years, values, 1)
-        poly = np.poly1d(coeffs)
-        forecast_y = poly(forecast_x)
-        
-        # Create confidence intervals
-        residuals = values - poly(years)
-        std_dev = np.std(residuals)
-        z_value = 1.96  # 95% confidence interval
-        
-        conf_interval = z_value * std_dev
-        upper_bound = forecast_y + conf_interval
-        lower_bound = forecast_y - conf_interval
-        
-    elif method == "Exponential":
-        # Use Holt-Winters exponential smoothing
-        try:
-            model = ExponentialSmoothing(
-                values, 
-                trend='add', 
-                seasonal=None,
-                initialization_method='estimated'
-            ).fit()
-            
-            forecast_y = model.forecast(forecast_years)
-            
-            # Confidence intervals
-            residuals = values - model.fittedvalues
-            std_dev = np.std(residuals)
-            z_value = 1.96
-            
-            conf_interval = z_value * std_dev * np.sqrt(np.arange(1, forecast_years + 1))
-            upper_bound = forecast_y + conf_interval
-            lower_bound = forecast_y - conf_interval
-            
-        except Exception as e:
-            # Fall back to linear regression if exponential fails
-            coeffs = np.polyfit(years, values, 1)
-            poly = np.poly1d(coeffs)
-            forecast_y = poly(forecast_x)
-            
-            residuals = values - poly(years)
-            std_dev = np.std(residuals)
-            z_value = 1.96
-            
-            conf_interval = z_value * std_dev
-            upper_bound = forecast_y + conf_interval
-            lower_bound = forecast_y - conf_interval
-    
-    elif method == "ARIMA":
-        try:
-            # Use ARIMA model (p=1, d=1, q=0) is a reasonable default
-            model = ARIMA(values, order=(1, 1, 0))
-            model_fit = model.fit()
-            
-            forecast_result = model_fit.get_forecast(steps=forecast_years)
-            forecast_y = forecast_result.predicted_mean
-            
-            # Get confidence intervals
-            conf_int = forecast_result.conf_int(alpha=1-confidence)
-            lower_bound = conf_int.iloc[:, 0].values
-            upper_bound = conf_int.iloc[:, 1].values
-            
-        except Exception as e:
-            # Fall back to linear regression if ARIMA fails
-            coeffs = np.polyfit(years, values, 1)
-            poly = np.poly1d(coeffs)
-            forecast_y = poly(forecast_x)
-            
-            residuals = values - poly(years)
-            std_dev = np.std(residuals)
-            z_value = 1.96
-            
-            conf_interval = z_value * std_dev
-            upper_bound = forecast_y + conf_interval
-            lower_bound = forecast_y - conf_interval
-    
-    else:  # Moving Average
-        # Use 3-year moving average for forecasting
-        window = min(3, len(values))
-        last_values = values[-window:]
-        avg = np.mean(last_values)
-        
-        # Simple trend calculation - average change over the last window years
-        if len(values) > window:
-            trend = (values[-1] - values[-window-1]) / window
-        else:
-            trend = 0
-            
-        forecast_y = np.array([avg + trend * i for i in range(1, forecast_years + 1)])
-        
-        # Confidence based on standard deviation of recent changes
-        recent_changes = np.diff(values[-window-1:])
-        std_dev = np.std(recent_changes) if len(recent_changes) > 0 else 0
-        z_value = 1.96
-        
-        conf_intervals = [z_value * std_dev * np.sqrt(i) for i in range(1, forecast_years + 1)]
-        upper_bound = forecast_y + conf_intervals
-        lower_bound = forecast_y - conf_intervals
-    
-    # Ensure no negative values in lower bound for spending
-    lower_bound = np.maximum(0, lower_bound)
-    
-    return forecast_x, forecast_y, (lower_bound, upper_bound)
 
 # ===== EVENTS DATA =====
 EVENTS = {
@@ -309,6 +163,73 @@ def calculate_event_impact(country, year, df):
         'is_nato': is_nato
     }
 
+# ===== Forecast Models =====
+def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
+    """
+    Forecast future spending using a time series model.
+
+    Args:
+        data (pd.Series): Historical spending data.
+        years_to_forecast (int): Number of years to forecast.
+        model_type (str): 'ARIMA', 'ExponentialSmoothing', or 'LinearRegression'.
+
+    Returns:
+        tuple: (forecasted_values, confidence_intervals)
+            forecasted_values (np.ndarray): Array of forecasted spending values.
+            confidence_intervals (np.ndarray): Array of forecasted spending values.
+    """
+    history = data.values.astype(float)
+    
+    if model_type == 'ARIMA':
+        try:
+            from statsmodels.tsa.arima.model import ARIMA
+            # ARIMA Model
+            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
+            model_fit = model.fit()
+            forecast_result = model_fit.get_forecast(steps=years_to_forecast)
+            forecasted_values = forecast_result.predicted_mean
+            confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+        except Exception as e:
+            print(f"Error in ARIMA: {e}")
+            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+
+    elif model_type == 'ExponentialSmoothing':
+        try:
+            from statsmodels.tsa.holtwinters import ExponentialSmoothing
+            # Exponential Smoothing
+            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
+            model_fit = model.fit()
+            forecast_result = model_fit.forecast(steps=years_to_forecast)
+            forecasted_values = forecast_result
+            # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
+            # A more robust approach would involve bootstrapping or simulation.
+            mse = np.mean((model_fit.fittedvalues - history) ** 2)
+            std_error = np.sqrt(mse)
+            confidence_intervals = np.array([
+                forecasted_values - 1.96 * std_error,
+                forecasted_values + 1.96 * std_error
+            ]).T
+        except Exception as e:
+            print(f"Error in ExponentialSmoothing: {e}")
+            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+    elif model_type == 'LinearRegression':
+        # Linear Regression (simple trend extrapolation)
+        years = np.arange(len(history))
+        model = np.polyfit(years, history, 1)  # Fit a linear trend
+        forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
+        forecasted_values = np.polyval(model, forecasted_years)
+        # Simplified confidence intervals (assuming constant variance)
+        residuals = history - np.polyval(model, years)
+        std_error = np.std(residuals)
+        confidence_intervals = np.array([
+            forecasted_values - 1.96 * std_error,
+            forecasted_values + 1.96 * std_error
+        ]).T
+    else:
+        raise ValueError(f"Invalid model type: {model_type}")
+    
+    return forecasted_values, confidence_intervals
+
 # ===== UI =====
 st.title("Defence Spending Analytics")
 st.caption("NATO military expenditure trends with event impact analysis")
@@ -322,14 +243,9 @@ with st.sidebar:
     country = st.selectbox("Select Country", available_countries, index=default_index)
     compare_countries = st.multiselect("Compare With", [c for c in available_countries if c != country])
     
-    st.header("Forecast Settings")
-    show_forecast = st.checkbox("Show Forecast", value=True)
-    if show_forecast:
-        forecast_years = st.slider("Forecast Years", min_value=1, max_value=10, value=5)
-        forecast_method = st.radio("Forecast Method", 
-                                  ["ARIMA", "Linear", "Exponential", "Moving Average"], 
-                                  horizontal=True)
-        confidence_level = st.slider("Confidence Level", min_value=0.7, max_value=0.99, value=0.95, format="%.2f")
+    st.header("Forecast")
+    forecast_years = st.slider("Years to Forecast", min_value=1, max_value=10, value=5)
+    forecast_model = st.selectbox("Forecast Model", ['ARIMA', 'ExponentialSmoothing', 'LinearRegression'])
 
 # Main layout
 col1, col2 = st.columns([3, 1])
@@ -338,10 +254,6 @@ with col1:
     if data_source == "SIPRI":
         fig = go.Figure()
         primary_data = df[df['Country'] == country]
-        
-        # Sort data by year to ensure proper line plots
-        primary_data = primary_data.sort_values('Year')
-        
         fig.add_trace(go.Scatter(
             x=primary_data['Year'],
             y=primary_data['Spending (USD)'],
@@ -350,42 +262,9 @@ with col1:
             mode='lines+markers',
             hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
         ))
-        
-        # Add forecast if enabled
-        if show_forecast and 'show_forecast' in locals():
-            forecast_data = primary_data.rename(columns={'Year': 'Year', 'Spending (USD)': 'Spending'})
-            forecast_x, forecast_y, confidence_intervals = generate_forecast(
-                forecast_data, 
-                method=forecast_method, 
-                forecast_years=forecast_years, 
-                confidence=confidence_level
-            )
-            
-            if forecast_x is not None:
-                # Add forecast line
-                fig.add_trace(go.Scatter(
-                    x=forecast_x,
-                    y=forecast_y,
-                    name="Forecast",
-                    line=dict(color='#ffd166', width=3, dash='dash'),
-                    mode='lines',
-                    hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M (Forecast)<extra></extra>"
-                ))
-                
-                # Add confidence intervals
-                lower_bound, upper_bound = confidence_intervals
-                fig.add_trace(go.Scatter(
-                    x=np.concatenate([forecast_x, forecast_x[::-1]]),
-                    y=np.concatenate([upper_bound, lower_bound[::-1]]),
-                    fill='toself',
-                    fillcolor='rgba(255, 209, 102, 0.2)',
-                    line=dict(color='rgba(255, 209, 102, 0)'),
-                    name=f"{int(confidence_level*100)}% Confidence",
-                    hoverinfo="skip"
-                ))
 
         for c in compare_countries:
-            comp_data = df[df['Country'] == c].sort_values('Year')
+            comp_data = df[df['Country'] == c]
             fig.add_trace(go.Scatter(
                 x=comp_data['Year'],
                 y=comp_data['Spending (USD)'],
@@ -395,64 +274,28 @@ with col1:
                 hovertemplate="<b>%{x}</b><br>$%{y:,.0f}M<extra></extra>"
             ))
 
-        y_title = "Military Spending (USD Millions)"
+        y_title = "Spending (USD)"  # Fixed column name to match dataframe
         chart_title = f"{country} Military Spending — SIPRI"
 
     else:  # NATO Data
         fig = go.Figure()
-        primary_data = df[df['Country'] == country].sort_values('Year')
+        primary_data = df[df['Country'] == country]
         
-        # For NATO data, we'll use lines instead of bars for better forecast visualization
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Bar(
             x=primary_data['Year'],
             y=primary_data['Spending (% of GDP)'],
             name=f"{country}",
-            line=dict(color='#00d2d3', width=3),
-            mode='lines+markers',
+            marker_color='#00d2d3',
             hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
         ))
         
-        # Add forecast if enabled
-        if show_forecast and 'show_forecast' in locals():
-            forecast_data = primary_data.rename(columns={'Year': 'Year', 'Spending (% of GDP)': 'Spending'})
-            forecast_x, forecast_y, confidence_intervals = generate_forecast(
-                forecast_data, 
-                method=forecast_method, 
-                forecast_years=forecast_years, 
-                confidence=confidence_level
-            )
-            
-            if forecast_x is not None:
-                # Add forecast line
-                fig.add_trace(go.Scatter(
-                    x=forecast_x,
-                    y=forecast_y,
-                    name="Forecast",
-                    line=dict(color='#ffd166', width=3, dash='dash'),
-                    mode='lines',
-                    hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP (Forecast)<extra></extra>"
-                ))
-                
-                # Add confidence intervals
-                lower_bound, upper_bound = confidence_intervals
-                fig.add_trace(go.Scatter(
-                    x=np.concatenate([forecast_x, forecast_x[::-1]]),
-                    y=np.concatenate([upper_bound, lower_bound[::-1]]),
-                    fill='toself',
-                    fillcolor='rgba(255, 209, 102, 0.2)',
-                    line=dict(color='rgba(255, 209, 102, 0)'),
-                    name=f"{int(confidence_level*100)}% Confidence",
-                    hoverinfo="skip"
-                ))
-        
         for c in compare_countries:
-            comp_data = df[df['Country'] == c].sort_values('Year')
-            fig.add_trace(go.Scatter(
+            comp_data = df[df['Country'] == c]
+            fig.add_trace(go.Bar(
                 x=comp_data['Year'],
                 y=comp_data['Spending (% of GDP)'],
                 name=c,
-                line=dict(dash='dot', width=2),
-                mode='lines',
+                opacity=0.7,
                 hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
             ))
         
@@ -460,7 +303,7 @@ with col1:
         years = primary_data['Year']
         if not years.empty:
             min_year = min(years)
-            max_year = max(years) + (forecast_years if show_forecast and 'show_forecast' in locals() else 0)
+            max_year = max(years)
             
             fig.add_shape(
                 type="line",
@@ -482,40 +325,62 @@ with col1:
                 bgcolor="rgba(0,0,0,0.5)"
             )
         
-        y_title = "Military Spending (% of GDP)"
+        y_title = "Spending (% of GDP)"  # Fixed column name to match dataframe
         chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
     fig.update_layout(
         title=chart_title,
         xaxis_title="Year",
-        yaxis_title=y_title,
+        yaxis_title="Military Spending",  # More generic title for y-axis
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color='#e2e8f0', family="Inter"),
         hovermode="x unified",
         height=500,
         margin=dict(t=80),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        barmode='group'
     )
 
+    # Add forecast to the plot
+    if forecast_years > 0:
+        last_year = df[df['Country'] == country]['Year'].max()
+        historical_data = df[df['Country'] == country].set_index('Year')
+        
+        # Use the correct column name for forecast based on the data source
+        forecast_col = y_title  # This matches the corrected column names above
+        
+        if forecast_col in historical_data.columns:  # Check if the column exists in the dataframe
+            historical_series = historical_data[forecast_col]
+            forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
+            forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
+            
+            if forecasted_values is not None and confidence_intervals is not None:  # Check if the forecast was successful
+                fig.add_trace(go.Scatter(
+                    x=forecast_years_list,
+                    y=forecasted_values,
+                    name=f"{forecast_model} Forecast",
+                    line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+                    mode='lines',
+                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"  # Adjust format as needed
+                ))
+                
+                # Add confidence intervals as a shaded region
+                fig.add_trace(go.Scatter(
+                    x=forecast_years_list + forecast_years_list[::-1],  # Reverse x-axis for lower bound
+                    y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
+                    fill='tozeroy',
+                    fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+                    line=dict(color='rgba(0,0,0,0)'),
+                    name='95% Confidence Interval',
+                    hoverinfo='skip'
+                ))
+            else:
+                st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
+        else:
+            st.error(f"The column '{forecast_col}' is not found in the data for {country}. Please check the data source and column names.")
+
     st.plotly_chart(fig, use_container_width=True)
-    
-    # Add forecast explanation if showing forecast
-    if show_forecast and 'show_forecast' in locals() and forecast_x is not None:
-        with st.expander("About this forecast"):
-            st.markdown(f"""
-            #### {forecast_method} Forecast Methodology
-            
-            This forecast projects defense spending for **{country}** over the next **{forecast_years} years** using a {forecast_method.lower()} model.
-            
-            - **Confidence Level**: {confidence_level*100:.0f}%
-            - **Data Source**: {data_source}
-            - **Forecast End Year**: {int(forecast_x[-1])}
-            
-            {"**Important Note**: This forecast assumes no major geopolitical shifts, policy changes, or economic crises. Actual spending may vary significantly based on global events, changes in threat perceptions, or budget constraints." if forecast_years > 3 else ""}
-            
-            {f"**Projected {forecast_years}-Year Change**: " + ('+' if forecast_y[-1] > primary_data['Spending (USD)'].iloc[-1] else '') + f"{(forecast_y[-1] - primary_data['Spending (USD)'].iloc[-1])/primary_data['Spending (USD)'].iloc[-1]*100:.1f}%" if data_source == "SIPRI" else f"**Projected {forecast_years}-Year Change**: " + ('+' if forecast_y[-1] > primary_data['Spending (% of GDP)'].iloc[-1] else '') + f"{forecast_y[-1] - primary_data['Spending (% of GDP)'].iloc[-1]:.2f} percentage points"}
-            """)
 
 with col2:
     spending_col = 'Spending (USD)' if data_source == 'SIPRI' else 'Spending (% of GDP)'
@@ -535,22 +400,6 @@ with col2:
                 <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Add forecast metric if enabled
-            if show_forecast and 'show_forecast' in locals() and forecast_x is not None:
-                forecast_end_year = int(forecast_x[-1])
-                forecast_end_value = forecast_y[-1]
-                
-                forecast_change = (forecast_end_value - current_spending) / current_spending * 100
-                change_color = "var(--positive)" if forecast_change >= 0 else "var(--negative)"
-                
-                st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Forecast ({forecast_end_year})</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--forecast);">${forecast_end_value/1000:,.1f}B</div>
-                    <div style="font-size: 0.9rem; color: {change_color};">{forecast_change:+.1f}% from {latest_year}</div>
-                </div>
-                """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
             <div class="metric-card fade-in">
@@ -559,29 +408,6 @@ with col2:
                 <div style="font-size: 0.9rem; color: #94a3b8;">{latest_year}</div>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Add forecast metric for NATO data if enabled
-            if show_forecast and 'show_forecast' in locals() and forecast_x is not None:
-                forecast_end_year = int(forecast_x[-1])
-                forecast_end_value = forecast_y[-1]
-                
-                # For NATO data, show whether the forecast meets the 2% target
-                meets_target = forecast_end_value >= 2.0
-                target_status = "Meets 2% target" if meets_target else "Below 2% target"
-                target_color = "var(--positive)" if meets_target else "var(--negative)"
-                
-                # Calculate percentage points change
-                forecast_change = forecast_end_value - current_spending
-                change_color = "var(--positive)" if forecast_change >= 0 else "var(--negative)"
-                
-                st.markdown(f"""
-                <div class="metric-card fade-in">
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Forecast ({forecast_end_year})</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--forecast);">{forecast_end_value:.2f}% of GDP</div>
-                    <div style="font-size: 0.9rem; color: {change_color};">{forecast_change:+.2f}pp from {latest_year}</div>
-                    <div style="font-size: 0.9rem; color: {target_color}; margin-top: 4px;">{target_status}</div>
-                </div>
-                """, unsafe_allow_html=True)
 
         five_years_ago = latest_year - 5
         past_data = country_data[country_data['Year'] == five_years_ago]
@@ -604,7 +430,12 @@ with col2:
             """, unsafe_allow_html=True)
 
     # Key Events Table - FIXED VERSION
-    st.markdown("<h3 style='margin-top: 24px; margin-bottom: 12px;'>Key Events</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <h3 style='margin-top: 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;'>
+        Key Events
+        <span title="Impacts are approximate and may not be directly caused by these events." style="cursor: help; font-size: 0.85em; color: #94a3b8;">ⓘ</span>
+    </h3>
+    """, unsafe_allow_html=True)
     
     event_impacts = []
     for year, event_name in EVENTS["Global"].items():
