@@ -3,9 +3,26 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
+import pmdarima
 from sklearn.preprocessing import MinMaxScaler
-from pmdarima.arima import auto_arima  # For automated ARIMA parameter selection
+
+# Handle the import error gracefully
+try:
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing
+except ImportError:
+    # Fallback option 1: Try alternative import path (for older statsmodels versions)
+    try:
+        from statsmodels.tsa.api import ExponentialSmoothing
+    except ImportError:
+        # Define a simple fallback class if the import fails completely
+        class ExponentialSmoothing:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                
+            def fit(self):
+                st.error("ExponentialSmoothing model unavailable. Please install statsmodels.")
+                return None
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -205,7 +222,7 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     if model_type == 'ARIMA':
         try:
             # Use auto_arima to find the best parameters
-            model = auto_arima(history_scaled,
+            model = pmdarima.arima.auto_arima(history_scaled,
                                             start_p=0, start_q=0,
                                             max_p=5, max_q=5,
                                             m=1,          # frequency of series (1 for annual data)
