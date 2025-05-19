@@ -3,17 +3,31 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
-import pmdarima
 from sklearn.preprocessing import MinMaxScaler
 
-# Handle the import error gracefully
+# Handle pmdarima import gracefully
+try:
+    import pmdarima
+    from pmdarima.arima import auto_arima
+    PMDARIMA_AVAILABLE = True
+except ImportError:
+    PMDARIMA_AVAILABLE = False
+    # Create a minimal placeholder for auto_arima
+    def auto_arima(*args, **kwargs):
+        st.error("pmdarima package is not available. Please install it using 'pip install pmdarima'.")
+        return None
+
+# Handle statsmodels import gracefully
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
+    STATSMODELS_AVAILABLE = True
 except ImportError:
-    # Fallback option 1: Try alternative import path (for older statsmodels versions)
+    # Try alternative import path (for older statsmodels versions)
     try:
         from statsmodels.tsa.api import ExponentialSmoothing
+        STATSMODELS_AVAILABLE = True
     except ImportError:
+        STATSMODELS_AVAILABLE = False
         # Define a simple fallback class if the import fails completely
         class ExponentialSmoothing:
             def __init__(self, *args, **kwargs):
@@ -221,8 +235,12 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
     if model_type == 'ARIMA':
         try:
+            if not PMDARIMA_AVAILABLE:
+                st.warning("ARIMA forecasting requires the pmdarima package to be installed.")
+                return None, None
+                
             # Use auto_arima to find the best parameters
-            model = pmdarima.arima.auto_arima(history_scaled,
+            model = auto_arima(history_scaled,
                                             start_p=0, start_q=0,
                                             max_p=5, max_q=5,
                                             m=1,          # frequency of series (1 for annual data)
@@ -248,6 +266,10 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
     elif model_type == 'ExponentialSmoothing':
         try:
+            if not STATSMODELS_AVAILABLE:
+                st.warning("ExponentialSmoothing forecasting requires the statsmodels package to be installed.")
+                return None, None
+                
             # Exponential Smoothing
             # Check if data allows for trend. If not, use simple.
             trend_type = 'add' if len(history_scaled) >= 2 else None
@@ -324,7 +346,10 @@ with st.sidebar:
 
     st.header("Forecast")
     forecast_years = st.slider("Years to Forecast", min_value=1, max_value=10, value=5)
-    forecast_model = st.selectbox("Forecast Model", ['ARIMA', 'ExponentialSmoothing', 'LinearRegression'])
+    forecast_model = st.selectbox("Forecast Model", 
+                             options=['LinearRegression', 'ARIMA', 'ExponentialSmoothing'],
+                             index=0,
+                             help="LinearRegression works without additional packages. ARIMA requires pmdarima. ExponentialSmoothing requires statsmodels.")
 
 # Main layout
 col1, col2 = st.columns([3, 1])
