@@ -306,9 +306,10 @@ with col2:
         if impact:
             event_impacts.append(impact)
     
+    # Sort impacts by absolute change
     event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
     
-    # Build table rows first
+    # Build the HTML table rows
     table_rows = ""
     for impact in event_impacts:
         change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
@@ -321,14 +322,15 @@ with col2:
         </tr>
         """
     
-    if not event_impacts:
+    # If no events had an impact
+    if not table_rows:
         table_rows = """
         <tr class="fade-in">
             <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
         </tr>
         """
     
-    # Display entire table at once
+    # Display the full table
     st.markdown(f"""
     <div class="fade-in">
         <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
@@ -346,6 +348,7 @@ with col2:
         </table>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 # Footer
