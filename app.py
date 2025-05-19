@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
-from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from sklearn.preprocessing import MinMaxScaler
 from pmdarima.arima import auto_arima  # For automated ARIMA parameter selection
@@ -37,18 +36,18 @@ def apply_styles():
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         transition: all 0.3s ease;
     }}
-    
+
     .metric-card:hover {{
         transform: translateY(-2px);
         box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
     }}
-    
+
     .event-table {{
         width: 100%;
         border-collapse: collapse;
         table-layout: fixed;
     }}
-    
+
     .event-table th,
     .event-table td {{
         padding: 8px 12px;
@@ -58,37 +57,37 @@ def apply_styles():
         text-overflow: ellipsis;
         white-space: nowrap;
     }}
-    
+
     .event-table th {{
         font-weight: 500;
         color: #94a3b8;
     }}
-    
+
     .event-table th:nth-child(1) {{
         width: 15%;
     }}
-    
+
     .event-table th:nth-child(2) {{
         width: 55%;
     }}
-    
+
     .event-table th:nth-child(3) {{
         width: 30%;
         text-align: right;
     }}
-    
+
     .event-table td:nth-child(3) {{
         text-align: right;
     }}
-    
+
     .positive-change {{
         color: var(--positive);
     }}
-    
+
     .negative-change {{
         color: var(--negative);
     }}
-    
+
     .fade-in {{
         opacity: 1;
         transition: opacity 0.5s ease;
@@ -109,7 +108,7 @@ def load_data(source="SIPRI"):
         df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
     else:
         df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
-    
+
     df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending')
     df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
     df_melted = df_melted.dropna(subset=['Year'])
@@ -121,7 +120,7 @@ def load_data(source="SIPRI"):
         df_melted.rename(columns={'Spending': 'Spending (USD)'}, inplace=True)
     else:
         df_melted.rename(columns={'Spending': 'Spending (% of GDP)'}, inplace=True)
-    
+
     return df_melted.dropna()
 
 # ===== EVENTS DATA =====
@@ -139,15 +138,15 @@ EVENTS = {
 def calculate_event_impact(country, year, df):
     is_nato = 'Spending (% of GDP)' in df.columns
     country_data = df[df['Country'] == country].sort_values('Year').reset_index(drop=True)
-    
+
     try:
         event_idx = country_data.index[country_data['Year'] == year][0]
     except IndexError:
         return None
-        
+
     if event_idx == 0:
         return None
-    
+
     if is_nato:
         # For NATO: Absolute difference in percentage points
         current = country_data.at[event_idx, 'Spending (% of GDP)']
@@ -158,7 +157,7 @@ def calculate_event_impact(country, year, df):
         current = country_data.at[event_idx, 'Spending (USD)']
         previous = country_data.at[event_idx - 1, 'Spending (USD)']
         change = (current - previous) / previous * 100
-    
+
     return {
         'year': year,
         'name': EVENTS.get("Global", {}).get(year),
@@ -179,71 +178,93 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
     Returns:
         tuple: (forecasted_values, confidence_intervals)
-            forecasted_values (np.ndarray): Array of forecasted spending values.
-            confidence_intervals (np.ndarray): Array of forecasted spending values.
+               forecasted_values (np.ndarray or None): Array of forecasted spending values, or None if forecast failed.
+               confidence_intervals (np.ndarray or None): Array of confidence intervals, or None if forecast failed.
     """
     history = data.values.astype(float)
-    
+
+    if len(history) < 5: # Basic check for enough data points
+        print(f"Not enough data ({len(history)} points) for {model_type} forecast.")
+        return None, None
+
     # Scaling
     scaler = MinMaxScaler()
     history_scaled = scaler.fit_transform(history.reshape(-1, 1)).flatten()
-    
+
+    forecasted_values = None
+    confidence_intervals = None
+
     if model_type == 'ARIMA':
         try:
             # Use auto_arima to find the best parameters
             model = auto_arima(history_scaled,
-                              start_p=0, start_q=0,
-                              max_p=5, max_q=5,
-                              m=1,             # frequency of series
-                              d=None,          # let model determine 'd'
-                              seasonal=False,  # Non-seasonal
-                              start_P=0,
-                              D=0,
-                              start_Q=0,
-                              max_P=5,
-                              max_D=5,
-                              max_Q=5,
-                              error_action='ignore',
-                              suppress_warnings=True,
-                              stepwise=True)
-            
+                               start_p=0, start_q=0,
+                               max_p=5, max_q=5,
+                               m=1,         # frequency of series (1 for annual data)
+                               d=None,      # let model determine 'd'
+                               seasonal=False, # Non-seasonal
+                               error_action='ignore',
+                               suppress_warnings=True,
+                               stepwise=True)
+
             model_fit = model.fit(history_scaled)  # Fit scaled data
             forecast_result = model_fit.get_forecast(steps=years_to_forecast)
             forecasted_values_scaled = forecast_result.predicted_mean
             confidence_intervals_scaled = forecast_result.conf_int(alpha=0.05)
-            
+
             # Inverse transform the scaled values
             forecasted_values = scaler.inverse_transform(forecasted_values_scaled.reshape(-1, 1)).flatten()
             confidence_intervals = scaler.inverse_transform(confidence_intervals_scaled).reshape(-1, 2)
 
         except Exception as e:
-            print(f"Error in ARIMA: {e}")
-            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+            print(f"ARIMA forecast failed: {e}") # Log the specific error
+            # return None, None # Already set to None
+            pass # Keep values as None
 
     elif model_type == 'ExponentialSmoothing':
         try:
             # Exponential Smoothing
-            model = ExponentialSmoothing(history_scaled, trend='add', seasonal=None)
+            # Check if data allows for trend. If not, use simple.
+            trend_type = 'add' if len(history_scaled) >= 2 else None
+            model = ExponentialSmoothing(history_scaled, trend=trend_type, seasonal=None)
             model_fit = model.fit()
             forecast_result = model_fit.forecast(steps=years_to_forecast)
             forecasted_values_scaled = forecast_result
-            
-            mse = np.mean((model_fit.fittedvalues - history_scaled) ** 2)
-            std_error = np.sqrt(mse)
-            confidence_intervals_scaled = np.array([
-                forecasted_values_scaled - 1.96 * std_error,
-                forecasted_values_scaled + 1.96 * std_error
-            ]).T
-            
+
+            # Approximate confidence intervals for Exponential Smoothing (less direct than ARIMA)
+            # Using residuals for std error is a common approach if model doesn't provide CI directly
+            # A more robust approach might involve simulation or bootstrap, but this is simpler
+            # Check if fitted values are available to calculate residuals
+            if model_fit.fittedvalues is not None and len(model_fit.fittedvalues) == len(history_scaled):
+                mse = np.mean((model_fit.fittedvalues - history_scaled) ** 2)
+                std_error = np.sqrt(mse)
+                # Using z-score for 95% CI (approximate)
+                confidence_intervals_scaled = np.array([
+                    forecasted_values_scaled - 1.96 * std_error,
+                    forecasted_values_scaled + 1.96 * std_error
+                ]).T
+            else:
+                # Fallback if fitted values aren't available or don't match length
+                print("Warning: Could not calculate reliable confidence intervals for Exponential Smoothing.")
+                confidence_intervals_scaled = np.zeros((years_to_forecast, 2)) # Return zeros or None if preferred
+
             # Inverse transform
             forecasted_values = scaler.inverse_transform(forecasted_values_scaled.reshape(-1, 1)).flatten()
             confidence_intervals = scaler.inverse_transform(confidence_intervals_scaled).reshape(-1, 2)
-            
+
+
         except Exception as e:
-            print(f"Error in ExponentialSmoothing: {e}")
-            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+            print(f"ExponentialSmoothing forecast failed: {e}") # Log the specific error
+            # return None, None # Already set to None
+            pass # Keep values as None
+
+
     elif model_type == 'LinearRegression':
         # Linear Regression (simple trend extrapolation)
+        if len(history) < 2: # Need at least 2 points for linear fit
+             print(f"Not enough data ({len(history)} points) for Linear Regression forecast.")
+             return None, None
+
         years = np.arange(len(history))
         model = np.polyfit(years, history, 1)  # Fit a linear trend
         forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
@@ -256,8 +277,9 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
             forecasted_values + 1.96 * std_error
         ]).T
     else:
+        # This case should not be reached with the current selectbox options, but good practice
         raise ValueError(f"Invalid model type: {model_type}")
-    
+
     return forecasted_values, confidence_intervals
 
 # ===== UI =====
@@ -272,7 +294,7 @@ with st.sidebar:
     default_index = available_countries.index('United States') if 'United States' in available_countries else 0
     country = st.selectbox("Select Country", available_countries, index=default_index)
     compare_countries = st.multiselect("Compare With", [c for c in available_countries if c != country])
-    
+
     st.header("Forecast")
     forecast_years = st.slider("Years to Forecast", min_value=1, max_value=10, value=5)
     forecast_model = st.selectbox("Forecast Model", ['ARIMA', 'ExponentialSmoothing', 'LinearRegression'])
@@ -310,7 +332,7 @@ with col1:
     else:  # NATO Data
         fig = go.Figure()
         primary_data = df[df['Country'] == country]
-        
+
         fig.add_trace(go.Bar(
             x=primary_data['Year'],
             y=primary_data['Spending (% of GDP)'],
@@ -318,7 +340,7 @@ with col1:
             marker_color='#00d2d3',
             hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
         ))
-        
+
         for c in compare_countries:
             comp_data = df[df['Country'] == c]
             fig.add_trace(go.Bar(
@@ -328,13 +350,13 @@ with col1:
                 opacity=0.7,
                 hovertemplate="<b>%{x}</b><br>%{y:.2f}% of GDP<extra></extra>"
             ))
-        
+
         # Add 2% target line
         years = primary_data['Year']
         if not years.empty:
             min_year = min(years)
             max_year = max(years)
-            
+
             fig.add_shape(
                 type="line",
                 x0=min_year,
@@ -344,7 +366,7 @@ with col1:
                 line=dict(color="#ff6b4a", width=2, dash="dash"),
                 name="NATO 2% Target"
             )
-            
+
             fig.add_annotation(
                 x=max_year,
                 y=2.0,
@@ -354,7 +376,7 @@ with col1:
                 font=dict(color="#ff6b4a"),
                 bgcolor="rgba(0,0,0,0.5)"
             )
-        
+
         y_title = "Spending (% of GDP)"  # Fixed column name to match dataframe
         chart_title = f"{country} Defense Budget as % of GDP — NATO"
 
@@ -374,41 +396,57 @@ with col1:
 
     # Add forecast to the plot
     if forecast_years > 0:
-        last_year = df[df['Country'] == country]['Year'].max()
-        historical_data = df[df['Country'] == country].set_index('Year')
-        
+        country_data_for_forecast = df[df['Country'] == country].sort_values('Year')
+
         # Use the correct column name for forecast based on the data source
-        forecast_col = y_title  # This matches the corrected column names above
-        
-        if forecast_col in historical_data.columns:  # Check if the column exists in the dataframe
-            historical_series = historical_data[forecast_col]
-            forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
-            forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
-            
-            if forecasted_values is not None and confidence_intervals is not None:  # Check if the forecast was successful
-                fig.add_trace(go.Scatter(
-                    x=forecast_years_list,
-                    y=forecasted_values,
-                    name=f"{forecast_model} Forecast",
-                    line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
-                    mode='lines',
-                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"  # Adjust format as needed
-                ))
-                
-                # Add confidence intervals as a shaded region
-                fig.add_trace(go.Scatter(
-                    x=forecast_years_list + forecast_years_list[::-1],  # Reverse x-axis for lower bound
-                    y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
-                    fill='tozeroy',
-                    fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
-                    line=dict(color='rgba(0,0,0,0)'),
-                    name='95% Confidence Interval',
-                    hoverinfo='skip'
-                ))
+        # This variable y_title is already set correctly based on data_source
+        forecast_col = y_title
+
+        if forecast_col in country_data_for_forecast.columns:
+            historical_series = country_data_for_forecast.set_index('Year')[forecast_col]
+
+            if not historical_series.empty:
+                 # Ensure we have enough data points
+                if len(historical_series) < 5 and forecast_model in ['ARIMA', 'ExponentialSmoothing']:
+                     st.warning(f"Not enough historical data ({len(historical_series)} years) for {forecast_model} forecast. Need at least 5 years.")
+                elif len(historical_series) < 2 and forecast_model == 'LinearRegression':
+                     st.warning(f"Not enough historical data ({len(historical_series)} years) for Linear Regression forecast. Need at least 2 years.")
+                else:
+                    forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
+
+                    # Check if the forecast was successful (did not return None, None)
+                    if forecasted_values is not None and confidence_intervals is not None:
+                        last_historical_year = historical_series.index.max()
+                        forecast_years_list = list(range(last_historical_year + 1, last_historical_year + forecast_years + 1))
+
+                        fig.add_trace(go.Scatter(
+                            x=forecast_years_list,
+                            y=forecasted_values,
+                            name=f"{forecast_model} Forecast",
+                            line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+                            mode='lines',
+                            hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>"  # Adjust format as needed
+                        ))
+
+                        # Add confidence intervals as a shaded region
+                        fig.add_trace(go.Scatter(
+                            x=forecast_years_list + forecast_years_list[::-1],  # Reverse x-axis for lower bound
+                            y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
+                            fill='tozeroy',
+                            fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+                            line=dict(color='rgba(0,0,0,0)'),
+                            name='95% Confidence Interval',
+                            hoverinfo='skip'
+                        ))
+                    else:
+                         # The function printed an error, now we show a user-facing warning
+                         st.warning(f"Forecast using {forecast_model} failed for {country}. Check data availability and quality.")
+
             else:
-                st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
+                st.warning(f"No historical data available for {country} to generate a forecast.")
+
         else:
-            st.error(f"The column '{forecast_col}' is not found in the data for {country}. Please check the data source and column names.")
+            st.error(f"Internal error: The column '{forecast_col}' is not found in the data for {country}. Please check the data loading logic.") # This case indicates a bug in column naming
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -449,7 +487,7 @@ with col2:
             else:
                 change = (current_spending - spending_5y_ago) / spending_5y_ago * 100
                 change_str = f"{change:+.1f}%"
-            
+
             change_color = "var(--positive)" if change >= 0 else "var(--negative)"
             st.markdown(f"""
             <div class="metric-card fade-in">
@@ -466,15 +504,15 @@ with col2:
         <span title="Impacts are approximate and may not be directly caused by these events." style="cursor: help; font-size: 0.85em; color: #94a3b8;">ⓘ</span>
     </h3>
     """, unsafe_allow_html=True)
-    
+
     event_impacts = []
     for year, event_name in EVENTS["Global"].items():
         impact = calculate_event_impact(country, year, df)
         if impact:
             event_impacts.append(impact)
-    
+
     event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
-    
+
     # Create DataFrame for table display
     if event_impacts:
         table_data = []
@@ -487,32 +525,32 @@ with col2:
                 "Impact": change_str,
                 "change_class": change_class
             })
-        
+
         df_events = pd.DataFrame(table_data)
-        
+
         # Apply custom styling to the table
         def color_impact(val):
             color = 'var(--positive)' if val == 'positive' else 'var(--negative)'
             return f'color: {color}'
-        
+
         # Create styled dataframe
         styled_df = pd.DataFrame({
             'Year': df_events['Year'],
             'Event': df_events['Event'],
             'Impact': df_events['Impact']
         })
-        
-        # Apply styling using pandas Styler
+
+        # Apply styling usingpandas Styler
         styler = styled_df.style.apply(
             lambda x: [
-                'color: var(--positive)' if df_events.loc[i, 'change_class'] == 'positive' else 'color: var(--negative)' 
+                'color: var(--positive)' if df_events.loc[i, 'change_class'] == 'positive' else 'color: var(--negative)'
                 for i in range(len(df_events))
-            ], 
+            ],
             subset=['Impact']
         ).set_properties(**{
             'text-align': 'right'
         }, subset=['Impact']).hide(axis="index")
-        
+
         # Display table with proper styling
         st.write(styler.to_html(), unsafe_allow_html=True)
     else:
