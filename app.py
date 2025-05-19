@@ -1,10 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from streamlit.components.v1 import html
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import numpy as np
 
 # ===== CONFIG =====
@@ -179,31 +176,42 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     Returns:
         tuple: (forecasted_values, confidence_intervals)
             forecasted_values (np.ndarray): Array of forecasted spending values.
-            confidence_intervals (np.ndarray): Array of confidence intervals (lower, upper).
+            confidence_intervals (np.ndarray): Array of forecasted spending values.
     """
     history = data.values.astype(float)
     
     if model_type == 'ARIMA':
-        # ARIMA Model
-        model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
-        model_fit = model.fit()
-        forecast_result = model_fit.get_forecast(steps=years_to_forecast)
-        forecasted_values = forecast_result.predicted_mean
-        confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+        try:
+            from statsmodels.tsa.arima.model import ARIMA
+            # ARIMA Model
+            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
+            model_fit = model.fit()
+            forecast_result = model_fit.get_forecast(steps=years_to_forecast)
+            forecasted_values = forecast_result.predicted_mean
+            confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+        except Exception as e:
+            print(f"Error in ARIMA: {e}")
+            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+
     elif model_type == 'ExponentialSmoothing':
-        # Exponential Smoothing
-        model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
-        model_fit = model.fit()
-        forecast_result = model_fit.forecast(steps=years_to_forecast)
-        forecasted_values = forecast_result
-        # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
-        # A more robust approach would involve bootstrapping or simulation.
-        mse = np.mean((model_fit.fittedvalues - history) ** 2)
-        std_error = np.sqrt(mse)
-        confidence_intervals = np.array([
-            forecasted_values - 1.96 * std_error,
-            forecasted_values + 1.96 * std_error
-        ]).T
+        try:
+            from statsmodels.tsa.holtwinters import ExponentialSmoothing
+            # Exponential Smoothing
+            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
+            model_fit = model.fit()
+            forecast_result = model_fit.forecast(steps=years_to_forecast)
+            forecasted_values = forecast_result
+            # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
+            # A more robust approach would involve bootstrapping or simulation.
+            mse = np.mean((model_fit.fittedvalues - history) ** 2)
+            std_error = np.sqrt(mse)
+            confidence_intervals = np.array([
+                forecasted_values - 1.96 * std_error,
+                forecasted_values + 1.96 * std_error
+            ]).T
+        except Exception as e:
+            print(f"Error in ExponentialSmoothing: {e}")
+            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
     elif model_type == 'LinearRegression':
         # Linear Regression (simple trend extrapolation)
         years = np.arange(len(history))
@@ -340,26 +348,29 @@ with col1:
         historical_data = df[df['Country'] == country].set_index('Year')[y_title]  # Use y_title
         forecasted_values, confidence_intervals = forecast_spending(historical_data, forecast_years, forecast_model)
         forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
-
-        fig.add_trace(go.Scatter(
-            x=forecast_years_list,
-            y=forecasted_values,
-            name=f"{forecast_model} Forecast",
-            line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
-            mode='lines',
-            hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
-        ))
         
-        # Add confidence intervals as a shaded region
-        fig.add_trace(go.Scatter(
-            x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
-            y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
-            fill='tozeroy',
-            fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
-            line=dict(color='rgba(0,0,0,0)'),
-            name='95% Confidence Interval',
-            hoverinfo='skip'
-        ))
+        if forecasted_values is not None and confidence_intervals is not None: # Check if the forecast was successful
+            fig.add_trace(go.Scatter(
+                x=forecast_years_list,
+                y=forecasted_values,
+                name=f"{forecast_model} Forecast",
+                line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+                mode='lines',
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
+            ))
+            
+            # Add confidence intervals as a shaded region
+            fig.add_trace(go.Scatter(
+                x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
+                y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
+                fill='tozeroy',
+                fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+                line=dict(color='rgba(0,0,0,0)'),
+                name='95% Confidence Interval',
+                hoverinfo='skip'
+            ))
+        else:
+            st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
 
     st.plotly_chart(fig, use_container_width=True)
 
