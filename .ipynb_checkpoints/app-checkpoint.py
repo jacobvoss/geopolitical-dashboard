@@ -42,6 +42,7 @@ def apply_styles():
     .event-table {{
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
     }}
     
     .event-table th,
@@ -49,11 +50,31 @@ def apply_styles():
         padding: 8px 12px;
         text-align: left;
         border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }}
     
     .event-table th {{
         font-weight: 500;
         color: #94a3b8;
+    }}
+    
+    .event-table th:nth-child(1) {{
+        width: 15%;
+    }}
+    
+    .event-table th:nth-child(2) {{
+        width: 55%;
+    }}
+    
+    .event-table th:nth-child(3) {{
+        width: 30%;
+        text-align: right;
+    }}
+    
+    .event-table td:nth-child(3) {{
+        text-align: right;
     }}
     
     .positive-change {{
@@ -299,57 +320,63 @@ with col2:
             </div>
             """, unsafe_allow_html=True)
 
-    # Key Events Table
+    # Key Events Table - FIXED VERSION
+    st.markdown("<h3 style='margin-top: 24px; margin-bottom: 12px;'>Key Events</h3>", unsafe_allow_html=True)
+    
     event_impacts = []
     for year, event_name in EVENTS["Global"].items():
         impact = calculate_event_impact(country, year, df)
         if impact:
             event_impacts.append(impact)
     
-    # Sort impacts by absolute change
     event_impacts.sort(key=lambda x: abs(x['change']), reverse=True)
     
-    # Build the HTML table rows
-    table_rows = ""
-    for impact in event_impacts:
-        change_class = "positive-change" if impact['change'] >= 0 else "negative-change"
-        change_str = f"{impact['change']:+.2f}pp" if impact['is_nato'] else f"{impact['change']:+.1f}%"
-        table_rows += f"""
-        <tr class="fade-in">
-            <td>{impact['year']}</td>
-            <td>{impact['name']}</td>
-            <td style="text-align: right;" class="{change_class}">{change_str}</td>
-        </tr>
-        """
-    
-    # If no events had an impact
-    if not table_rows:
-        table_rows = """
-        <tr class="fade-in">
-            <td colspan="3" style="text-align: center; color: #94a3b8;">No event data available</td>
-        </tr>
-        """
-    
-    # Display the full table
-    st.markdown(f"""
-    <div class="fade-in">
-        <h3 style="margin-top: 24px; margin-bottom: 12px;">Key Events</h3>
-        <table class="event-table">
-            <thead>
-                <tr>
-                    <th>Year</th>
-                    <th>Event</th>
-                    <th style="text-align: right;">Impact</th>
-                </tr>
-            </thead>
-            <tbody>
-                {table_rows}
-            </tbody>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
-
-
+    # Create DataFrame for table display
+    if event_impacts:
+        table_data = []
+        for impact in event_impacts:
+            change_class = "positive" if impact['change'] >= 0 else "negative"
+            change_str = f"{impact['change']:+.2f}pp" if impact['is_nato'] else f"{impact['change']:+.1f}%"
+            table_data.append({
+                "Year": impact['year'],
+                "Event": impact['name'],
+                "Impact": change_str,
+                "change_class": change_class
+            })
+        
+        df_events = pd.DataFrame(table_data)
+        
+        # Apply custom styling to the table
+        def color_impact(val):
+            color = 'var(--positive)' if val == 'positive' else 'var(--negative)'
+            return f'color: {color}'
+        
+        # Create styled dataframe
+        styled_df = pd.DataFrame({
+            'Year': df_events['Year'],
+            'Event': df_events['Event'],
+            'Impact': df_events['Impact']
+        })
+        
+        # Apply styling using pandas Styler
+        styler = styled_df.style.apply(
+            lambda x: [
+                'color: var(--positive)' if df_events.loc[i, 'change_class'] == 'positive' else 'color: var(--negative)' 
+                for i in range(len(df_events))
+            ], 
+            subset=['Impact']
+        ).set_properties(**{
+            'text-align': 'right'
+        }, subset=['Impact']).hide(axis="index")
+        
+        # Display table with proper styling
+        st.write(styler.to_html(), unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="width: 100%; text-align: center; padding: 16px; color: #94a3b8;">
+            No event data available
+        </div>
+        """, unsafe_allow_html=True)
 
 # Footer
 st.divider()
