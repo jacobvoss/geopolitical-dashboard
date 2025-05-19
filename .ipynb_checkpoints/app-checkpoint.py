@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -182,9 +184,8 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     
     if model_type == 'ARIMA':
         try:
-            from statsmodels.tsa.arima.model import ARIMA
             # ARIMA Model
-            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
+            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed.  This is CRUCIAL.
             model_fit = model.fit()
             forecast_result = model_fit.get_forecast(steps=years_to_forecast)
             forecasted_values = forecast_result.predicted_mean
@@ -195,9 +196,8 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
     elif model_type == 'ExponentialSmoothing':
         try:
-            from statsmodels.tsa.holtwinters import ExponentialSmoothing
             # Exponential Smoothing
-            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
+            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params,  CRUCIAL
             model_fit = model.fit()
             forecast_result = model_fit.forecast(steps=years_to_forecast)
             forecasted_values = forecast_result
