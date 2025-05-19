@@ -345,32 +345,37 @@ with col1:
     # Add forecast to the plot
     if forecast_years > 0:
         last_year = df[df['Country'] == country]['Year'].max()
-        historical_data = df[df['Country'] == country].set_index('Year')[y_title]  # Use y_title
-        forecasted_values, confidence_intervals = forecast_spending(historical_data, forecast_years, forecast_model)
-        forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
+        historical_data = df[df['Country'] == country].set_index('Year')
         
-        if forecasted_values is not None and confidence_intervals is not None: # Check if the forecast was successful
-            fig.add_trace(go.Scatter(
-                x=forecast_years_list,
-                y=forecasted_values,
-                name=f"{forecast_model} Forecast",
-                line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
-                mode='lines',
-                hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
-            ))
+        if y_title in historical_data.columns: # Check if the y_title exists in the dataframe
+            historical_data = historical_data[y_title]
+            forecasted_values, confidence_intervals = forecast_spending(historical_data, forecast_years, forecast_model)
+            forecast_years_list = list(range(last_year + 1, last_year + forecast_years + 1))
             
-            # Add confidence intervals as a shaded region
-            fig.add_trace(go.Scatter(
-                x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
-                y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
-                fill='tozeroy',
-                fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
-                line=dict(color='rgba(0,0,0,0)'),
-                name='95% Confidence Interval',
-                hoverinfo='skip'
-            ))
+            if forecasted_values is not None and confidence_intervals is not None: # Check if the forecast was successful
+                fig.add_trace(go.Scatter(
+                    x=forecast_years_list,
+                    y=forecasted_values,
+                    name=f"{forecast_model} Forecast",
+                    line=dict(color='#ffdb58', dash='dash'),  # Distinct color for forecast
+                    mode='lines',
+                    hovertemplate="<b>%{x}</b><br>%{y:.2f}<extra></extra>" # Adjust format as needed
+                ))
+                
+                # Add confidence intervals as a shaded region
+                fig.add_trace(go.Scatter(
+                    x=forecast_years_list + forecast_years_list[::-1], # Reverse x-axis for lower bound
+                    y=np.concatenate([confidence_intervals[:, 1], confidence_intervals[:, 0][::-1]]),
+                    fill='tozeroy',
+                    fillcolor='rgba(255, 219, 88, 0.3)',  # Light shade for CI
+                    line=dict(color='rgba(0,0,0,0)'),
+                    name='95% Confidence Interval',
+                    hoverinfo='skip'
+                ))
+            else:
+                st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
         else:
-            st.warning(f"Failed to generate forecast using {forecast_model} for {country}.")
+            st.error(f"The column '{y_title}' is not found in the data for {country}.  Please check the data source and column names.")
 
     st.plotly_chart(fig, use_container_width=True)
 
