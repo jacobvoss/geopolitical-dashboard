@@ -321,7 +321,13 @@ with col2:
             """, unsafe_allow_html=True)
 
     # Key Events Table - FIXED VERSION
-    st.markdown("<h3 style='margin-top: 24px; margin-bottom: 12px;'>Key Events</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <h3 style='margin-top: 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;'>
+        Key Events
+        <span title="Impacts are approximate and may not be directly caused by these events." style="cursor: help; font-size: 0.85em; color: #94a3b8;">ⓘ</span>
+    </h3>
+    """, unsafe_allow_html=True)
+
     
     event_impacts = []
     for year, event_name in EVENTS["Global"].items():
