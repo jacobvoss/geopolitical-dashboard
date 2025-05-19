@@ -105,9 +105,17 @@ apply_styles()
 @st.cache_data
 def load_data(source="SIPRI"):
     if source == "SIPRI":
-        df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
+        try:
+            df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
+        except FileNotFoundError:
+            st.error("Error: SIPRI data file not found. Please ensure it is in the 'cleaned_data' directory.")
+            return pd.DataFrame()  # Return empty DataFrame to avoid further errors
     else:
-        df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
+        try:
+            df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
+        except FileNotFoundError:
+            st.error("Error: NATO data file not found. Please ensure it is in the 'cleaned_data' directory.")
+            return pd.DataFrame()  # Return empty DataFrame
 
     df_melted = df.melt(id_vars=['Country'], var_name='Year', value_name='Spending')
     df_melted['Year'] = pd.to_numeric(df_melted['Year'], errors='coerce')
@@ -178,8 +186,8 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
     Returns:
         tuple: (forecasted_values, confidence_intervals)
-               forecasted_values (np.ndarray or None): Array of forecasted spending values, or None if forecast failed.
-               confidence_intervals (np.ndarray or None): Array of confidence intervals, or None if forecast failed.
+                        forecasted_values (np.ndarray or None): Array of forecasted spending values, or None if forecast failed.
+                        confidence_intervals (np.ndarray or None): Array of confidence intervals, or None if forecast failed.
     """
     history = data.values.astype(float)
 
@@ -198,14 +206,14 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
         try:
             # Use auto_arima to find the best parameters
             model = auto_arima(history_scaled,
-                               start_p=0, start_q=0,
-                               max_p=5, max_q=5,
-                               m=1,         # frequency of series (1 for annual data)
-                               d=None,      # let model determine 'd'
-                               seasonal=False, # Non-seasonal
-                               error_action='ignore',
-                               suppress_warnings=True,
-                               stepwise=True)
+                                            start_p=0, start_q=0,
+                                            max_p=5, max_q=5,
+                                            m=1,          # frequency of series (1 for annual data)
+                                            d=None,       # let model determine 'd'
+                                            seasonal=False, # Non-seasonal
+                                            error_action='ignore',
+                                            suppress_warnings=True,
+                                            stepwise=True)
 
             model_fit = model.fit(history_scaled)  # Fit scaled data
             forecast_result = model_fit.get_forecast(steps=years_to_forecast)
@@ -262,8 +270,8 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     elif model_type == 'LinearRegression':
         # Linear Regression (simple trend extrapolation)
         if len(history) < 2: # Need at least 2 points for linear fit
-             print(f"Not enough data ({len(history)} points) for Linear Regression forecast.")
-             return None, None
+                print(f"Not enough data ({len(history)} points) for Linear Regression forecast.")
+                return None, None
 
         years = np.arange(len(history))
         model = np.polyfit(years, history, 1)  # Fit a linear trend
@@ -290,6 +298,8 @@ with st.sidebar:
     st.header("Filters")
     data_source = st.selectbox("Select Data Source", ["SIPRI", "NATO"])
     df = load_data(data_source)
+    if df.empty:
+        st.stop()  # Stop if data loading failed
     available_countries = df['Country'].unique().tolist()
     default_index = available_countries.index('United States') if 'United States' in available_countries else 0
     country = st.selectbox("Select Country", available_countries, index=default_index)
@@ -406,11 +416,11 @@ with col1:
             historical_series = country_data_for_forecast.set_index('Year')[forecast_col]
 
             if not historical_series.empty:
-                 # Ensure we have enough data points
+                # Ensure we have enough data points
                 if len(historical_series) < 5 and forecast_model in ['ARIMA', 'ExponentialSmoothing']:
-                     st.warning(f"Not enough historical data ({len(historical_series)} years) for {forecast_model} forecast. Need at least 5 years.")
+                    st.warning(f"Not enough historical data ({len(historical_series)} years) for {forecast_model} forecast. Need at least 5 years.")
                 elif len(historical_series) < 2 and forecast_model == 'LinearRegression':
-                     st.warning(f"Not enough historical data ({len(historical_series)} years) for Linear Regression forecast. Need at least 2 years.")
+                    st.warning(f"Not enough historical data ({len(historical_series)} years) for Linear Regression forecast. Need at least 2 years.")
                 else:
                     forecasted_values, confidence_intervals = forecast_spending(historical_series, forecast_years, forecast_model)
 
@@ -439,8 +449,8 @@ with col1:
                             hoverinfo='skip'
                         ))
                     else:
-                         # The function printed an error, now we show a user-facing warning
-                         st.warning(f"Forecast using {forecast_model} failed for {country}. Check data availability and quality.")
+                        # The function printed an error, now we show a user-facing warning
+                        st.warning(f"Forecast using {forecast_model} failed for {country}. Check data availability and quality.")
 
             else:
                 st.warning(f"No historical data available for {country} to generate a forecast.")
