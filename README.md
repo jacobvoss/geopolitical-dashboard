@@ -1,14 +1,15 @@
 # NATO Defense Analytics Dashboard
 
-An interactive Streamlit app that visualizes trends in NATO defense spending alongside major geopolitical events and their impacts on each member country’s defense budgets.
+An interactive Streamlit app that visualizes trends in NATO defense spending alongside major geopolitical events, their impacts on each member country’s defense budgets, and uses forecast models to predict future spending trends.
 
-[Live Demo](https://geopolitical-dashboard-voss.streamlit.app/)
+[Live Demo](https://nato-analysis-dashboard.streamlit.app/) 
 
 ---
 
 ## Features
 
 - Displays defense spending of NATO member countries in **million USD** and as a **percentage of GDP**.
+- Uses three different forecast models to predict future spending trends.
 - Visualizes spending trends over time with interactive charts.
 - Highlights the impact of key geopolitical events (e.g., 9/11, Crimea annexation, Russia-Ukraine war) on defense budgets.
 - Allows comparison between multiple countries.
