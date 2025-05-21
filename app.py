@@ -3,6 +3,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
+# Add these imports at the top level
+import statsmodels.tsa.arima.model as arima_model
+import statsmodels.tsa.holtwinters as holtwinters
+from scipy import stats
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -184,7 +188,7 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     try:
         if model_type == 'ARIMA':
             try:
-                from statsmodels.tsa.arima.model import ARIMA
+                # No need to import here anymore as we imported at the top
                 
                 # Check if we have enough data points
                 if len(history) < 10:
@@ -192,7 +196,7 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
                     model_type = 'LinearRegression'
                 else:
                     # ARIMA Model - use simpler order for better stability
-                    model = ARIMA(history, order=(1,1,0))  # Simpler model (p,d,q)
+                    model = arima_model.ARIMA(history, order=(1,1,0))  # Simpler model (p,d,q)
                     model_fit = model.fit()
                     forecast_result = model_fit.get_forecast(steps=years_to_forecast)
                     forecasted_values = forecast_result.predicted_mean
@@ -204,7 +208,7 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
 
         if model_type == 'ExponentialSmoothing':
             try:
-                from statsmodels.tsa.holtwinters import ExponentialSmoothing
+                # No need to import here anymore as we imported at the top
                 
                 # Check if we have enough data points
                 if len(history) < 8:
@@ -216,10 +220,10 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
                     
                     # Use additive trend but only use seasonal component if enough data
                     if len(history) >= 10:
-                        model = ExponentialSmoothing(history, trend='add', seasonal='add', 
+                        model = holtwinters.ExponentialSmoothing(history, trend='add', seasonal='add', 
                                                     seasonal_periods=seasonal_periods)
                     else:
-                        model = ExponentialSmoothing(history, trend='add', seasonal=None)
+                        model = holtwinters.ExponentialSmoothing(history, trend='add', seasonal=None)
                     
                     model_fit = model.fit(optimized=True)
                     forecasted_values = model_fit.forecast(steps=years_to_forecast)
@@ -261,7 +265,6 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
                 se_forecast = se * np.sqrt(1 + 1/n + (forecasted_years - np.mean(years))**2 / np.sum((years - np.mean(years))**2))
                 
                 # 95% confidence intervals (use t-distribution for small samples)
-                from scipy import stats
                 t_value = stats.t.ppf(0.975, n - 2)  # 95% CI, two-tailed
                 
                 lower_ci = forecasted_values - t_value * se_forecast
