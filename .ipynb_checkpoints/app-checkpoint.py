@@ -3,9 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit.components.v1 import html
 import numpy as np
-# Add these imports at the top level
-import statsmodels.tsa.arima.model as arima_model
-import statsmodels.tsa.holtwinters as holtwinters
+# Import scipy stats for confidence intervals
 from scipy import stats
 
 # ===== CONFIG =====
@@ -188,58 +186,80 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     try:
         if model_type == 'ARIMA':
             try:
-                # No need to import here anymore as we imported at the top
-                
-                # Check if we have enough data points
-                if len(history) < 10:
-                    st.warning(f"Not enough historical data for reliable ARIMA forecasting. Using linear regression instead.")
+                # Check if statsmodels is available
+                try:
+                    import statsmodels.tsa.arima.model
+                    has_statsmodels = True
+                except ImportError:
+                    has_statsmodels = False
+                    st.warning("statsmodels package not found. Using linear regression instead.")
                     model_type = 'LinearRegression'
-                else:
-                    # ARIMA Model - use simpler order for better stability
-                    model = arima_model.ARIMA(history, order=(1,1,0))  # Simpler model (p,d,q)
-                    model_fit = model.fit()
-                    forecast_result = model_fit.get_forecast(steps=years_to_forecast)
-                    forecasted_values = forecast_result.predicted_mean
-                    confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
-                    return forecasted_values, confidence_intervals
+                
+                # Only proceed with ARIMA if statsmodels is available
+                if has_statsmodels:
+                    from statsmodels.tsa.arima.model import ARIMA
+                    
+                    # Check if we have enough data points
+                    if len(history) < 10:
+                        st.warning(f"Not enough historical data for reliable ARIMA forecasting. Using linear regression instead.")
+                        model_type = 'LinearRegression'
+                    else:
+                        # ARIMA Model - use simpler order for better stability
+                        model = ARIMA(history, order=(1,1,0))  # Simpler model (p,d,q)
+                        model_fit = model.fit()
+                        forecast_result = model_fit.get_forecast(steps=years_to_forecast)
+                        forecasted_values = forecast_result.predicted_mean
+                        confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+                        return forecasted_values, confidence_intervals
             except Exception as e:
-                st.warning(f"ARIMA forecasting failed: {e}. Using linear regression instead.")
+                st.warning(f"ARIMA forecasting failed: {str(e)}. Using linear regression instead.")
                 model_type = 'LinearRegression'
 
         if model_type == 'ExponentialSmoothing':
             try:
-                # No need to import here anymore as we imported at the top
-                
-                # Check if we have enough data points
-                if len(history) < 8:
-                    st.warning(f"Not enough historical data for reliable ExponentialSmoothing. Using linear regression instead.")
+                # Check if statsmodels is available
+                try:
+                    import statsmodels.tsa.holtwinters
+                    has_statsmodels = True
+                except ImportError:
+                    has_statsmodels = False
+                    st.warning("statsmodels package not found. Using linear regression instead.")
                     model_type = 'LinearRegression'
-                else:
-                    # Use simpler Exponential Smoothing parameters
-                    seasonal_periods = min(5, len(history) // 2)  # Avoid seasonal period larger than half the data
+                
+                # Only proceed with ExponentialSmoothing if statsmodels is available
+                if has_statsmodels:
+                    from statsmodels.tsa.holtwinters import ExponentialSmoothing
                     
-                    # Use additive trend but only use seasonal component if enough data
-                    if len(history) >= 10:
-                        model = holtwinters.ExponentialSmoothing(history, trend='add', seasonal='add', 
-                                                    seasonal_periods=seasonal_periods)
+                    # Check if we have enough data points
+                    if len(history) < 8:
+                        st.warning(f"Not enough historical data for reliable ExponentialSmoothing. Using linear regression instead.")
+                        model_type = 'LinearRegression'
                     else:
-                        model = holtwinters.ExponentialSmoothing(history, trend='add', seasonal=None)
-                    
-                    model_fit = model.fit(optimized=True)
-                    forecasted_values = model_fit.forecast(steps=years_to_forecast)
-                    
-                    # Calculate confidence intervals
-                    residuals = model_fit.resid
-                    std_error = np.std(residuals)
-                    
-                    # Create 95% confidence intervals (±1.96 standard errors)
-                    lower_ci = forecasted_values - 1.96 * std_error
-                    upper_ci = forecasted_values + 1.96 * std_error
-                    confidence_intervals = np.column_stack((lower_ci, upper_ci))
-                    
-                    return forecasted_values, confidence_intervals
+                        # Use simpler Exponential Smoothing parameters
+                        seasonal_periods = min(5, len(history) // 2)  # Avoid seasonal period larger than half the data
+                        
+                        # Use additive trend but only use seasonal component if enough data
+                        if len(history) >= 10:
+                            model = ExponentialSmoothing(history, trend='add', seasonal='add', 
+                                                        seasonal_periods=seasonal_periods)
+                        else:
+                            model = ExponentialSmoothing(history, trend='add', seasonal=None)
+                        
+                        model_fit = model.fit(optimized=True)
+                        forecasted_values = model_fit.forecast(steps=years_to_forecast)
+                        
+                        # Calculate confidence intervals
+                        residuals = model_fit.resid
+                        std_error = np.std(residuals)
+                        
+                        # Create 95% confidence intervals (±1.96 standard errors)
+                        lower_ci = forecasted_values - 1.96 * std_error
+                        upper_ci = forecasted_values + 1.96 * std_error
+                        confidence_intervals = np.column_stack((lower_ci, upper_ci))
+                        
+                        return forecasted_values, confidence_intervals
             except Exception as e:
-                st.warning(f"ExponentialSmoothing forecasting failed: {e}. Using linear regression instead.")
+                st.warning(f"ExponentialSmoothing forecasting failed: {str(e)}. Using linear regression instead.")
                 model_type = 'LinearRegression'
 
         # If we reach here, use LinearRegression (either by choice or as fallback)
@@ -279,7 +299,7 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
             
     except Exception as e:
         # Final fallback: simple linear extrapolation with wider confidence intervals
-        st.error(f"All forecasting methods failed: {e}. Using simple trend extrapolation.")
+        st.error(f"All forecasting methods failed: {str(e)}. Using simple trend extrapolation.")
         
         # Simple trend based on last two points or average growth
         if len(history) >= 2:
