@@ -180,54 +180,117 @@ def forecast_spending(data, years_to_forecast, model_type='ARIMA'):
     """
     history = data.values.astype(float)
     
-    if model_type == 'ARIMA':
-        try:
-            from statsmodels.tsa.arima.model import ARIMA
-            # ARIMA Model
-            model = ARIMA(history, order=(5,1,0)) # Example order, tune as needed
-            model_fit = model.fit()
-            forecast_result = model_fit.get_forecast(steps=years_to_forecast)
-            forecasted_values = forecast_result.predicted_mean
-            confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
-        except Exception as e:
-            print(f"Error in ARIMA: {e}")
-            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
+    # Fallback to linear regression if other methods fail
+    try:
+        if model_type == 'ARIMA':
+            try:
+                from statsmodels.tsa.arima.model import ARIMA
+                
+                # Check if we have enough data points
+                if len(history) < 10:
+                    st.warning(f"Not enough historical data for reliable ARIMA forecasting. Using linear regression instead.")
+                    model_type = 'LinearRegression'
+                else:
+                    # ARIMA Model - use simpler order for better stability
+                    model = ARIMA(history, order=(1,1,0))  # Simpler model (p,d,q)
+                    model_fit = model.fit()
+                    forecast_result = model_fit.get_forecast(steps=years_to_forecast)
+                    forecasted_values = forecast_result.predicted_mean
+                    confidence_intervals = forecast_result.conf_int(alpha=0.05)  # 95% CI
+                    return forecasted_values, confidence_intervals
+            except Exception as e:
+                st.warning(f"ARIMA forecasting failed: {e}. Using linear regression instead.")
+                model_type = 'LinearRegression'
 
-    elif model_type == 'ExponentialSmoothing':
-        try:
-            from statsmodels.tsa.holtwinters import ExponentialSmoothing
-            # Exponential Smoothing
-            model = ExponentialSmoothing(history, trend='add', seasonal='add', seasonal_periods=5) # Example params
-            model_fit = model.fit()
-            forecast_result = model_fit.forecast(steps=years_to_forecast)
-            forecasted_values = forecast_result
-            # Confidence intervals for ES are not directly available in statsmodels, using a proxy.
-            # A more robust approach would involve bootstrapping or simulation.
-            mse = np.mean((model_fit.fittedvalues - history) ** 2)
-            std_error = np.sqrt(mse)
-            confidence_intervals = np.array([
-                forecasted_values - 1.96 * std_error,
-                forecasted_values + 1.96 * std_error
-            ]).T
-        except Exception as e:
-            print(f"Error in ExponentialSmoothing: {e}")
-            return np.zeros(years_to_forecast), np.zeros((years_to_forecast, 2))
-    elif model_type == 'LinearRegression':
-        # Linear Regression (simple trend extrapolation)
-        years = np.arange(len(history))
-        model = np.polyfit(years, history, 1)  # Fit a linear trend
-        forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
-        forecasted_values = np.polyval(model, forecasted_years)
-        # Simplified confidence intervals (assuming constant variance)
-        residuals = history - np.polyval(model, years)
-        std_error = np.std(residuals)
-        confidence_intervals = np.array([
-            forecasted_values - 1.96 * std_error,
-            forecasted_values + 1.96 * std_error
-        ]).T
-    else:
-        raise ValueError(f"Invalid model type: {model_type}")
-    
+        if model_type == 'ExponentialSmoothing':
+            try:
+                from statsmodels.tsa.holtwinters import ExponentialSmoothing
+                
+                # Check if we have enough data points
+                if len(history) < 8:
+                    st.warning(f"Not enough historical data for reliable ExponentialSmoothing. Using linear regression instead.")
+                    model_type = 'LinearRegression'
+                else:
+                    # Use simpler Exponential Smoothing parameters
+                    seasonal_periods = min(5, len(history) // 2)  # Avoid seasonal period larger than half the data
+                    
+                    # Use additive trend but only use seasonal component if enough data
+                    if len(history) >= 10:
+                        model = ExponentialSmoothing(history, trend='add', seasonal='add', 
+                                                    seasonal_periods=seasonal_periods)
+                    else:
+                        model = ExponentialSmoothing(history, trend='add', seasonal=None)
+                    
+                    model_fit = model.fit(optimized=True)
+                    forecasted_values = model_fit.forecast(steps=years_to_forecast)
+                    
+                    # Calculate confidence intervals
+                    residuals = model_fit.resid
+                    std_error = np.std(residuals)
+                    
+                    # Create 95% confidence intervals (±1.96 standard errors)
+                    lower_ci = forecasted_values - 1.96 * std_error
+                    upper_ci = forecasted_values + 1.96 * std_error
+                    confidence_intervals = np.column_stack((lower_ci, upper_ci))
+                    
+                    return forecasted_values, confidence_intervals
+            except Exception as e:
+                st.warning(f"ExponentialSmoothing forecasting failed: {e}. Using linear regression instead.")
+                model_type = 'LinearRegression'
+
+        # If we reach here, use LinearRegression (either by choice or as fallback)
+        if model_type == 'LinearRegression':
+            # Linear Regression (simple trend extrapolation)
+            years = np.arange(len(history))
+            model = np.polyfit(years, history, 1)  # Fit a linear trend
+            forecasted_years = np.arange(len(history), len(history) + years_to_forecast)
+            forecasted_values = np.polyval(model, forecasted_years)
+            
+            # Calculate residuals and standard error
+            fitted_values = np.polyval(model, years)
+            residuals = history - fitted_values
+            
+            # Degrees of freedom: n - 2 (for slope and intercept)
+            n = len(history)
+            if n > 2:
+                # Standard error of the estimate
+                se = np.sqrt(np.sum(residuals**2) / (n - 2))
+                
+                # Standard error of the forecast
+                # This is a simplified approach - full prediction intervals would account for uncertainty in parameters
+                se_forecast = se * np.sqrt(1 + 1/n + (forecasted_years - np.mean(years))**2 / np.sum((years - np.mean(years))**2))
+                
+                # 95% confidence intervals (use t-distribution for small samples)
+                from scipy import stats
+                t_value = stats.t.ppf(0.975, n - 2)  # 95% CI, two-tailed
+                
+                lower_ci = forecasted_values - t_value * se_forecast
+                upper_ci = forecasted_values + t_value * se_forecast
+            else:
+                # Fallback if we have very little data
+                lower_ci = forecasted_values * 0.8
+                upper_ci = forecasted_values * 1.2
+            
+            confidence_intervals = np.column_stack((lower_ci, upper_ci))
+            return forecasted_values, confidence_intervals
+            
+    except Exception as e:
+        # Final fallback: simple linear extrapolation with wider confidence intervals
+        st.error(f"All forecasting methods failed: {e}. Using simple trend extrapolation.")
+        
+        # Simple trend based on last two points or average growth
+        if len(history) >= 2:
+            avg_growth = (history[-1] / history[0]) ** (1 / (len(history) - 1)) - 1 if history[0] > 0 else 0.05
+            forecasted_values = np.array([history[-1] * (1 + avg_growth) ** (i+1) for i in range(years_to_forecast)])
+        else:
+            # If we only have one data point, assume 2% growth
+            forecasted_values = np.array([history[-1] * (1.02) ** (i+1) for i in range(years_to_forecast)])
+        
+        # Wide confidence intervals due to high uncertainty
+        lower_ci = forecasted_values * 0.7
+        upper_ci = forecasted_values * 1.3
+        confidence_intervals = np.column_stack((lower_ci, upper_ci))
+        
     return forecasted_values, confidence_intervals
 
 # ===== UI =====
