@@ -110,6 +110,8 @@ apply_styles()
 def load_data(source="SIPRI"):
     if source == "SIPRI":
         df = pd.read_csv('cleaned_data/SIPRI_spending_clean.csv')
+        # Normalize naming to align with NATO dataset and UI selections
+        df['Country'] = df['Country'].replace({'United States of America': 'United States'})
     else:
         df = pd.read_csv('cleaned_data/nato_defense_spending_clean.csv')
 
@@ -315,7 +317,11 @@ with st.sidebar:
     data_source = st.selectbox("Select Data Source", ["SIPRI", "NATO"])
     df = load_data(data_source)
     available_countries = df['Country'].unique().tolist()
-    default_index = available_countries.index('United States') if 'United States' in available_countries else 0
+    # Ensure "United States" is selected even if SIPRI uses "United States of America"
+    default_country = 'United States'
+    if default_country not in available_countries and 'United States of America' in available_countries:
+        default_country = 'United States of America'
+    default_index = available_countries.index(default_country) if default_country in available_countries else 0
     country = st.selectbox("Select Country", available_countries, index=default_index)
     compare_countries = st.multiselect("Compare With", [c for c in available_countries if c != country])
 
